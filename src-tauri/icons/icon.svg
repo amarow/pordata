@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256">
+  <!-- Background -->
+  <rect width="256" height="256" rx="48" fill="#0f0f1a"/>
+
+  <!-- Koffer-Griff -->
+  <rect x="96" y="56" width="64" height="20" rx="10" fill="none" stroke="#4f8ef7" stroke-width="12"/>
+
+  <!-- Koffer-Körper -->
+  <rect x="40" y="76" width="176" height="124" rx="16" fill="#4f8ef7"/>
+
+  <!-- Mittlerer Streifen -->
+  <rect x="40" y="126" width="176" height="14" fill="#2860d4"/>
+
+  <!-- Verschluss-Schloss -->
+  <rect x="112" y="116" width="32" height="34" rx="6" fill="#2860d4"/>
+  <rect x="120" y="108" width="16" height="14" rx="8" fill="none" stroke="#2860d4" stroke-width="6"/>
+</svg>

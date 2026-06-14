@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import appIcon from "../assets/icon.png";
 import type { SyncJob, DeviceInfo } from "../types";
 
 function openFolder(path: string) {
@@ -28,7 +29,10 @@ export default function Dashboard({
   return (
     <div className="view dashboard">
       <header className="app-header">
-        <h1>Pordata Sync</h1>
+        <div className="app-title">
+          <img src={appIcon} alt="" className="app-icon" />
+          <h1>Pordata Sync</h1>
+        </div>
       </header>
 
       <div className="jobs-grid">
@@ -97,17 +101,19 @@ export default function Dashboard({
                     <>
                       {connected && (
                         <button
-                          className="btn-primary"
+                          className="btn-icon-action btn-icon-sync"
+                          title="Synchronisation starten"
                           onClick={() => onStartSync(job.id)}
                         >
-                          Sync starten
+                          ⟳
                         </button>
                       )}
                       <button
-                        className="btn-danger"
+                        className="btn-icon-action btn-icon-delete"
+                        title="Verbindung entfernen"
                         onClick={() => setConfirmDeleteId(job.id)}
                       >
-                        Löschen
+                        🗑
                       </button>
                     </>
                   )}
