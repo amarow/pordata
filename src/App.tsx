@@ -1,51 +1,216 @@
-import { useState } from "react";
-import reactLogo from "./assets/react.svg";
+import { useState, useEffect } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
+import type {
+  SyncJob,
+  DeviceInfo,
+  PreScanResult,
+  SyncSummary,
+  ConflictInfo,
+  ConflictResolutionInput,
+  View,
+} from "./types";
+import Dashboard from "./components/Dashboard";
+import NewJobDialog from "./components/NewJobDialog";
+import SyncPreview from "./components/SyncPreview";
+import ConflictDialog from "./components/ConflictDialog";
 import "./App.css";
 
-function App() {
-  const [greetMsg, setGreetMsg] = useState("");
-  const [name, setName] = useState("");
+export default function App() {
+  const [view, setView] = useState<View>("dashboard");
+  const [jobs, setJobs] = useState<SyncJob[]>([]);
+  const [activeDevices, setActiveDevices] = useState<DeviceInfo[]>([]);
+  const [scanResults, setScanResults] = useState<PreScanResult[]>([]);
+  const [activeScanIndex, setActiveScanIndex] = useState(0);
+  const [conflictJobId, setConflictJobId] = useState<string | null>(null);
+  const [conflictOps, setConflictOps] = useState<ConflictInfo[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
-  async function greet() {
-    // Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
-    setGreetMsg(await invoke("greet", { name }));
+  useEffect(() => {
+    loadJobs();
+    loadActiveDevices();
+  }, []);
+
+  useEffect(() => {
+    function onKeyDown(e: KeyboardEvent) {
+      if (e.key !== "Escape") return;
+      if (view === "new-job") setView("dashboard");
+      if (view === "sync-preview") setView("dashboard");
+      if (view === "conflict") setView("dashboard");
+    }
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [view]);
+
+  useEffect(() => {
+    const unlistenAttached = listen<{ uuid: string; mount_path: string }>(
+      "device-attached",
+      (e) => {
+        setActiveDevices((prev) => [
+          ...prev.filter((d) => d.uuid !== e.payload.uuid),
+          e.payload,
+        ]);
+      }
+    );
+    const unlistenDetached = listen<{ uuid: string }>("device-detached", (e) => {
+      setActiveDevices((prev) => prev.filter((d) => d.uuid !== e.payload.uuid));
+    });
+    return () => {
+      unlistenAttached.then((f) => f());
+      unlistenDetached.then((f) => f());
+    };
+  }, []);
+
+  async function loadJobs() {
+    try {
+      setJobs(await invoke<SyncJob[]>("get_sync_jobs"));
+    } catch (e) {
+      setError(String(e));
+    }
+  }
+
+  async function loadActiveDevices() {
+    try {
+      setActiveDevices(await invoke<DeviceInfo[]>("get_active_devices"));
+    } catch (e) {
+      setError(String(e));
+    }
+  }
+
+  async function handleCreateJob(
+    localPath: string,
+    usbSubfolder: string,
+    usbUuid: string
+  ) {
+    try {
+      await invoke("create_sync_job", { localPath, usbSubfolder, usbUuid });
+      await loadJobs();
+      setView("dashboard");
+    } catch (e) {
+      setError(String(e));
+    }
+  }
+
+  async function handleDeleteJob(jobId: string) {
+    try {
+      await invoke("delete_sync_job", { jobId });
+      await loadJobs();
+    } catch (e) {
+      setError(String(e));
+    }
+  }
+
+  async function handleStartPreScan(jobId?: string) {
+    setLoading(true);
+    setError(null);
+    try {
+      const results = await invoke<PreScanResult[]>("run_pre_scan", {
+        jobId: jobId ?? null,
+      });
+      if (results.length === 0) {
+        setError("Kein USB-Gerät mit konfigurierten Jobs verbunden.");
+        return;
+      }
+      setScanResults(results);
+      setActiveScanIndex(0);
+      setView("sync-preview");
+    } catch (e) {
+      setError(String(e));
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function handleSync(jobId: string) {
+    setLoading(true);
+    setError(null);
+    try {
+      const summary = await invoke<SyncSummary>("start_sync", { jobId });
+      if (summary.conflicts > 0) {
+        const conflicts = summary.operations
+          .filter((op) => "Conflict" in op)
+          .map((op) => (op as { Conflict: ConflictInfo }).Conflict);
+        setConflictJobId(jobId);
+        setConflictOps(conflicts);
+        setView("conflict");
+      } else {
+        setView("dashboard");
+      }
+    } catch (e) {
+      setError(String(e));
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function handleResolveConflicts(
+    jobId: string,
+    resolutions: ConflictResolutionInput[]
+  ) {
+    setLoading(true);
+    setError(null);
+    try {
+      await invoke("resolve_conflicts", { jobId, resolutions });
+      setView("dashboard");
+    } catch (e) {
+      setError(String(e));
+    } finally {
+      setLoading(false);
+    }
   }
 
   return (
-    <main className="container">
-      <h1>Welcome to Tauri + React</h1>
+    <div className="app">
+      {error && (
+        <div className="error-banner">
+          <span>{error}</span>
+          <button onClick={() => setError(null)}>✕</button>
+        </div>
+      )}
 
-      <div className="row">
-        <a href="https://vite.dev" target="_blank">
-          <img src="/vite.svg" className="logo vite" alt="Vite logo" />
-        </a>
-        <a href="https://tauri.app" target="_blank">
-          <img src="/tauri.svg" className="logo tauri" alt="Tauri logo" />
-        </a>
-        <a href="https://react.dev" target="_blank">
-          <img src={reactLogo} className="logo react" alt="React logo" />
-        </a>
-      </div>
-      <p>Click on the Tauri, Vite, and React logos to learn more.</p>
+      {loading && (
+        <div className="loading-overlay">
+          <div className="spinner" />
+        </div>
+      )}
 
-      <form
-        className="row"
-        onSubmit={(e) => {
-          e.preventDefault();
-          greet();
-        }}
-      >
-        <input
-          id="greet-input"
-          onChange={(e) => setName(e.currentTarget.value)}
-          placeholder="Enter a name..."
+      {view === "dashboard" && (
+        <Dashboard
+          jobs={jobs}
+          activeDevices={activeDevices}
+          onNewJob={() => setView("new-job")}
+          onStartSync={handleStartPreScan}
+          onDeleteJob={handleDeleteJob}
         />
-        <button type="submit">Greet</button>
-      </form>
-      <p>{greetMsg}</p>
-    </main>
+      )}
+
+      {view === "new-job" && (
+        <NewJobDialog
+          activeDevices={activeDevices}
+          onSave={handleCreateJob}
+          onCancel={() => setView("dashboard")}
+        />
+      )}
+
+      {view === "sync-preview" && scanResults.length > 0 && (
+        <SyncPreview
+          results={scanResults}
+          activeIndex={activeScanIndex}
+          onTabChange={setActiveScanIndex}
+          onSync={handleSync}
+          onBack={() => setView("dashboard")}
+        />
+      )}
+
+      {view === "conflict" && conflictJobId && (
+        <ConflictDialog
+          jobId={conflictJobId}
+          conflicts={conflictOps}
+          onResolve={handleResolveConflicts}
+          onCancel={() => setView("dashboard")}
+        />
+      )}
+    </div>
   );
 }
-
-export default App;

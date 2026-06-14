@@ -46,20 +46,21 @@ pordata/
 └── tasks.md
 ```
 
-## Entwicklung
+## App starten
 
 ```bash
-# Abhängigkeiten installieren
-npm install
+npm install          # einmalig
+npm run tauri dev    # startet App im Entwicklungsmodus
+```
 
-# Dev-Server starten (Tauri + Vite)
-npm run tauri dev
+Beim ersten Start kompiliert Rust ~1–2 Minuten; danach gecacht.
+Für End-to-End-Tests und USB-Stick-Einrichtung → [TESTING.md](./TESTING.md)
 
-# Produktions-Build
-npm run tauri build
+## Build & Tests
 
-# Rust-Tests
-cd src-tauri && cargo test
+```bash
+npm run tauri build       # Produktions-Build (AppImage / .deb)
+cd src-tauri && cargo test # Rust-Unit-Tests (30/30)
 ```
 
 ## Empfohlenes IDE-Setup

@@ -1,14 +1,267 @@
-// Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
-#[tauri::command]
-fn greet(name: &str) -> String {
-    format!("Hello, {}! You've been greeted from Rust!", name)
+pub mod config;
+pub mod device_monitor;
+pub mod sync_engine;
+
+use std::collections::HashMap;
+use std::path::PathBuf;
+use std::sync::{Arc, Mutex};
+
+use serde::{Deserialize, Serialize};
+use tauri::State;
+
+use crate::config::{add_sync_job, remove_sync_job, save_config, Config, SyncJob};
+use crate::device_monitor::{ActiveDevices, DeviceInfo};
+use crate::sync_engine::{
+    compare_states, execute_sync, load_index, resolve_conflict, save_index, scan_directory,
+    ConflictResolution, SyncSummary,
+};
+
+// ---------------------------------------------------------------------------
+// App state
+// ---------------------------------------------------------------------------
+
+pub struct AppState {
+    pub config: Arc<Mutex<Config>>,
+    pub active_devices: ActiveDevices,
 }
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+fn job_index_path(job_id: &str) -> PathBuf {
+    let home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".to_owned());
+    PathBuf::from(home)
+        .join(".config")
+        .join("pordata")
+        .join(format!("index_{job_id}.json"))
+}
+
+// ---------------------------------------------------------------------------
+// DTOs for cross-command data
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Serialize)]
+pub struct PreScanResult {
+    pub job_id: String,
+    pub local_path: String,
+    pub usb_mount_path: String,
+    pub usb_subfolder: String,
+    pub summary: SyncSummary,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct ConflictResolutionInput {
+    pub rel_path: String,
+    pub resolution: ConflictResolution,
+}
+
+// ---------------------------------------------------------------------------
+// Tauri commands
+// ---------------------------------------------------------------------------
+
+#[tauri::command]
+fn get_sync_jobs(state: State<AppState>) -> Result<Vec<SyncJob>, String> {
+    let config = state.config.lock().map_err(|e| e.to_string())?;
+    Ok(config.jobs.clone())
+}
+
+#[tauri::command]
+fn create_sync_job(
+    local_path: String,
+    usb_subfolder: String,
+    usb_uuid: String,
+    state: State<AppState>,
+) -> Result<SyncJob, String> {
+    let mut config = state.config.lock().map_err(|e| e.to_string())?;
+    let job = add_sync_job(&mut config, local_path, usb_subfolder, usb_uuid);
+    save_config(&config)?;
+    Ok(job)
+}
+
+#[tauri::command]
+fn delete_sync_job(job_id: String, state: State<AppState>) -> Result<(), String> {
+    let mut config = state.config.lock().map_err(|e| e.to_string())?;
+    remove_sync_job(&mut config, &job_id)?;
+    save_config(&config)
+}
+
+#[tauri::command]
+fn open_in_file_manager(path: String) -> Result<(), String> {
+    std::process::Command::new("xdg-open")
+        .arg(&path)
+        .spawn()
+        .map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+#[tauri::command]
+async fn select_directory() -> Result<Option<String>, String> {
+    let folder = rfd::AsyncFileDialog::new().pick_folder().await;
+    Ok(folder.map(|f| f.path().to_string_lossy().to_string()))
+}
+
+#[tauri::command]
+async fn select_directory_from(start_path: String) -> Result<Option<String>, String> {
+    let folder = rfd::AsyncFileDialog::new()
+        .set_directory(&start_path)
+        .pick_folder()
+        .await;
+    Ok(folder.map(|f| f.path().to_string_lossy().to_string()))
+}
+
+#[tauri::command]
+fn run_pre_scan(
+    job_id: Option<String>,
+    state: State<AppState>,
+) -> Result<Vec<PreScanResult>, String> {
+    // Collect job info and release the config lock before locking active_devices.
+    let jobs: Vec<SyncJob> = {
+        let config = state.config.lock().map_err(|e| e.to_string())?;
+        match &job_id {
+            Some(id) => config.jobs.iter().filter(|j| &j.id == id).cloned().collect(),
+            None => config.jobs.clone(),
+        }
+    };
+
+    let active = state.active_devices.lock().map_err(|e| e.to_string())?;
+
+    let mut results = Vec::new();
+    for job in &jobs {
+        let Some(device) = active.get(&job.usb_uuid) else {
+            continue; // USB not connected — skip silently
+        };
+
+        let local_root = PathBuf::from(&job.local_path);
+        let usb_root = PathBuf::from(&device.mount_path).join(&job.usb_subfolder);
+        std::fs::create_dir_all(&usb_root).map_err(|e| e.to_string())?;
+
+        let local_state = scan_directory(&local_root)?;
+        let usb_state = scan_directory(&usb_root)?;
+        let index = load_index(&job_index_path(&job.id))?;
+        let summary = compare_states(&local_state, &usb_state, &index);
+
+        results.push(PreScanResult {
+            job_id: job.id.clone(),
+            local_path: job.local_path.clone(),
+            usb_mount_path: device.mount_path.clone(),
+            usb_subfolder: job.usb_subfolder.clone(),
+            summary,
+        });
+    }
+
+    Ok(results)
+}
+
+#[tauri::command]
+fn start_sync(job_id: String, state: State<AppState>) -> Result<SyncSummary, String> {
+    let (local_path, usb_subfolder, usb_uuid) = {
+        let config = state.config.lock().map_err(|e| e.to_string())?;
+        let job = config
+            .jobs
+            .iter()
+            .find(|j| j.id == job_id)
+            .ok_or_else(|| format!("Job '{job_id}' not found"))?;
+        (job.local_path.clone(), job.usb_subfolder.clone(), job.usb_uuid.clone())
+    };
+
+    let mount_path = {
+        let active = state.active_devices.lock().map_err(|e| e.to_string())?;
+        active
+            .get(&usb_uuid)
+            .map(|d| d.mount_path.clone())
+            .ok_or_else(|| format!("USB device '{usb_uuid}' is not connected"))?
+    };
+
+    let local_root = PathBuf::from(&local_path);
+    let usb_root = PathBuf::from(&mount_path).join(&usb_subfolder);
+    std::fs::create_dir_all(&usb_root).map_err(|e| e.to_string())?;
+    let idx_path = job_index_path(&job_id);
+
+    let local_state = scan_directory(&local_root)?;
+    let usb_state = scan_directory(&usb_root)?;
+    let mut index = load_index(&idx_path)?;
+    let summary = compare_states(&local_state, &usb_state, &index);
+    execute_sync(&local_root, &usb_root, &summary.operations, &mut index)?;
+    save_index(&idx_path, &index)?;
+
+    Ok(summary)
+}
+
+#[tauri::command]
+fn resolve_conflicts(
+    job_id: String,
+    resolutions: Vec<ConflictResolutionInput>,
+    state: State<AppState>,
+) -> Result<(), String> {
+    let (local_path, usb_subfolder, usb_uuid) = {
+        let config = state.config.lock().map_err(|e| e.to_string())?;
+        let job = config
+            .jobs
+            .iter()
+            .find(|j| j.id == job_id)
+            .ok_or_else(|| format!("Job '{job_id}' not found"))?;
+        (job.local_path.clone(), job.usb_subfolder.clone(), job.usb_uuid.clone())
+    };
+
+    let mount_path = {
+        let active = state.active_devices.lock().map_err(|e| e.to_string())?;
+        active
+            .get(&usb_uuid)
+            .map(|d| d.mount_path.clone())
+            .ok_or_else(|| format!("USB device '{usb_uuid}' is not connected"))?
+    };
+
+    let local_root = PathBuf::from(&local_path);
+    let usb_root = PathBuf::from(&mount_path).join(&usb_subfolder);
+    let idx_path = job_index_path(&job_id);
+    let mut index = load_index(&idx_path)?;
+
+    for res in &resolutions {
+        resolve_conflict(&local_root, &usb_root, &res.rel_path, res.resolution, &mut index)?;
+    }
+
+    save_index(&idx_path, &index)
+}
+
+#[tauri::command]
+fn get_active_devices(state: State<AppState>) -> Result<Vec<DeviceInfo>, String> {
+    let active = state.active_devices.lock().map_err(|e| e.to_string())?;
+    Ok(active.values().cloned().collect())
+}
+
+// ---------------------------------------------------------------------------
+// Entry point
+// ---------------------------------------------------------------------------
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    let config: Arc<Mutex<Config>> =
+        Arc::new(Mutex::new(crate::config::load_config().unwrap_or_default()));
+    let active_devices: ActiveDevices = Arc::new(Mutex::new(HashMap::new()));
+
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
-        .invoke_handler(tauri::generate_handler![greet])
+        .manage(AppState {
+            config: config.clone(),
+            active_devices: active_devices.clone(),
+        })
+        .setup(move |app| {
+            device_monitor::start_monitor(app.handle().clone(), active_devices);
+            Ok(())
+        })
+        .invoke_handler(tauri::generate_handler![
+            get_sync_jobs,
+            create_sync_job,
+            delete_sync_job,
+            open_in_file_manager,
+            select_directory,
+            select_directory_from,
+            run_pre_scan,
+            start_sync,
+            resolve_conflicts,
+            get_active_devices,
+        ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }
