@@ -1,121 +1,30 @@
-import { useState } from "react";
-import type { PreScanResult, SyncSummary } from "../types";
+import type { PreScanResult } from "../types";
 
 interface Props {
   results: PreScanResult[];
   activeIndex: number;
   onTabChange: (i: number) => void;
-  onSync: (jobId: string) => void;
+  onSync: (jobId: string, direction: "to_usb" | "to_local" | "both") => void;
   onBack: () => void;
 }
 
-// ---- Donut chart constants ----
-const R = 60;
-const SW = 24;
-const CIRC = 2 * Math.PI * R;
-const CX = 100;
-const CY = 100;
-
-const SEGS = [
-  { key: "copy_to_usb" as const, color: "#4f8ef7", label: "→ USB" },
-  { key: "copy_to_local" as const, color: "#3fca7a", label: "→ Lokal" },
-  { key: "delete" as const, color: "#f5863a", label: "Löschen" },
-  { key: "conflicts" as const, color: "#f05555", label: "Konflikt" },
-  { key: "up_to_date" as const, color: "#55556a", label: "Aktuell" },
-];
-
-function DonutChart({
-  summary,
-  onAction,
-  hasConflicts,
-}: {
-  summary: SyncSummary;
-  onAction: () => void;
-  hasConflicts: boolean;
-}) {
-  const [hovered, setHovered] = useState<number | null>(null);
-
-  const segs = SEGS.map((s) => ({ ...s, count: summary[s.key] }));
-  const total = segs.reduce((a, s) => a + s.count, 0);
-
-  let cum = 0;
-  const paths = segs
-    .filter((s) => s.count > 0)
-    .map((seg, i) => {
-      const dashLen = (seg.count / total) * CIRC;
-      const offset = -(cum / total) * CIRC;
-      cum += seg.count;
-      return { ...seg, dashLen, offset, i };
-    });
-
+function FileIcon() {
   return (
-    <div className="donut-wrapper">
-      <div className="donut-container">
-        <svg viewBox="0 0 200 200" className="donut-svg">
-          {/* Track */}
-          <circle
-            cx={CX}
-            cy={CY}
-            r={R}
-            fill="none"
-            stroke="rgba(255,255,255,0.06)"
-            strokeWidth={SW}
-          />
-          {paths.map((seg) => (
-            <circle
-              key={seg.key}
-              cx={CX}
-              cy={CY}
-              r={R}
-              fill="none"
-              stroke={seg.color}
-              strokeWidth={hovered === seg.i ? SW + 5 : SW}
-              strokeDasharray={`${seg.dashLen} ${CIRC - seg.dashLen}`}
-              strokeDashoffset={seg.offset}
-              transform={`rotate(-90 ${CX} ${CY})`}
-              className="donut-segment"
-              onMouseEnter={() => setHovered(seg.i)}
-              onMouseLeave={() => setHovered(null)}
-            />
-          ))}
-        </svg>
-
-        <button className="donut-center-btn" onClick={onAction}>
-          {hasConflicts ? "Konflikte\nlösen" : "Sync\nstarten"}
-        </button>
-
-        {hovered !== null && (
-          <div className="donut-tooltip">
-            {paths[hovered].label}: {paths[hovered].count}
-          </div>
-        )}
-      </div>
-
-      <div className="donut-legend">
-        {segs.map((s) => {
-          if (s.count === 0) return null;
-          return (
-            <div key={s.key} className="legend-item">
-              <span className="legend-dot" style={{ background: s.color }} />
-              <span className="legend-label">{s.label}</span>
-              <span className="legend-count">{s.count}</span>
-            </div>
-          );
-        })}
-      </div>
-    </div>
+    <svg width="15" height="18" viewBox="0 0 15 18" fill="currentColor" aria-hidden>
+      <path d="M9 0H2C.9 0 0 .9 0 2v14c0 1.1.9 2 2 2h11c1.1 0 2-.9 2-2V5L9 0zm-1 6V1.5L12.5 6H8z" />
+    </svg>
   );
 }
 
-export default function SyncPreview({
-  results,
-  activeIndex,
-  onTabChange,
-  onSync,
-  onBack,
-}: Props) {
+export default function SyncPreview({ results, activeIndex, onTabChange, onSync, onBack }: Props) {
   const active = results[activeIndex];
-  const hasConflicts = active.summary.conflicts > 0;
+  const s = active.summary;
+
+  const deleteOnUsb = s.operations.filter((op) => "DeleteOnUsb" in op).length;
+  const deleteOnLocal = s.operations.filter((op) => "DeleteOnLocal" in op).length;
+
+  const hasToUsb = s.copy_to_usb > 0 || deleteOnUsb > 0;
+  const hasToLocal = s.copy_to_local > 0 || deleteOnLocal > 0;
 
   return (
     <div className="view sync-preview">
@@ -141,33 +50,73 @@ export default function SyncPreview({
       )}
 
       <div className="preview-body">
+        {/* Left info card */}
         <div className="info-card">
-          <div className="info-card-label">Lokal</div>
+          <div className="info-card-label label-local">Lokal</div>
           <div className="info-card-path">{active.local_path}</div>
           <div className="info-card-stat">
-            <span className="stat-num stat-blue">
-              {active.summary.copy_to_usb}
-            </span>{" "}
-            neuer als USB
+            <span className="stat-num stat-blue">{active.local_file_count}</span>
+            Datei{active.local_file_count !== 1 ? "en" : ""}
           </div>
         </div>
 
-        <DonutChart
-          summary={active.summary}
-          onAction={() => onSync(active.job_id)}
-          hasConflicts={hasConflicts}
-        />
+        {/* Direction buttons */}
+        <div className="dir-buttons-wrap">
+          <button
+            className="dir-btn dir-btn-to-usb"
+            onClick={() => onSync(active.job_id, "to_usb")}
+            disabled={!hasToUsb}
+          >
+            <span className="dir-btn-top">
+              <FileIcon />
+              <span className="dir-btn-count">{s.copy_to_usb}</span>
+              <span className="dir-btn-unit">Datei{s.copy_to_usb !== 1 ? "en" : ""}</span>
+            </span>
+            <span className="dir-btn-arrow">Lokal → USB</span>
+            {deleteOnUsb > 0 && (
+              <span className="dir-btn-delete">{deleteOnUsb} löschen</span>
+            )}
+          </button>
 
+          <button
+            className="dir-btn dir-btn-to-local"
+            onClick={() => onSync(active.job_id, "to_local")}
+            disabled={!hasToLocal}
+          >
+            <span className="dir-btn-top">
+              <FileIcon />
+              <span className="dir-btn-count">{s.copy_to_local}</span>
+              <span className="dir-btn-unit">Datei{s.copy_to_local !== 1 ? "en" : ""}</span>
+            </span>
+            <span className="dir-btn-arrow">Lokal ← USB</span>
+            {deleteOnLocal > 0 && (
+              <span className="dir-btn-delete">{deleteOnLocal} löschen</span>
+            )}
+          </button>
+
+          {s.conflicts > 0 && (
+            <button
+              className="dir-btn dir-btn-conflicts"
+              onClick={() => onSync(active.job_id, "both")}
+            >
+              <span className="dir-btn-top">
+                <span className="dir-btn-count">{s.conflicts}</span>
+                <span className="dir-btn-unit">Konflikt{s.conflicts !== 1 ? "e" : ""}</span>
+              </span>
+              <span className="dir-btn-arrow">Konflikte lösen</span>
+            </button>
+          )}
+        </div>
+
+        {/* Right info card */}
         <div className="info-card">
-          <div className="info-card-label">USB</div>
+          <div className="info-card-label label-usb">USB</div>
           <div className="info-card-path">
             {active.usb_mount_path}/{active.usb_subfolder}
           </div>
           <div className="info-card-stat">
-            <span className="stat-num stat-green">
-              {active.summary.copy_to_local}
-            </span>{" "}
-            neuer als Lokal
+            <span className="stat-num stat-green">{active.usb_file_count}</span>
+            Datei{active.usb_file_count !== 1 ? "en" : ""}
           </div>
         </div>
       </div>

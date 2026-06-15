@@ -13,7 +13,7 @@ use crate::config::{add_sync_job, remove_sync_job, save_config, Config, SyncJob}
 use crate::device_monitor::{ActiveDevices, DeviceInfo};
 use crate::sync_engine::{
     compare_states, execute_sync, load_index, resolve_conflict, save_index, scan_directory,
-    ConflictResolution, SyncSummary,
+    ConflictResolution, SyncOperation, SyncSummary,
 };
 
 // ---------------------------------------------------------------------------
@@ -47,6 +47,8 @@ pub struct PreScanResult {
     pub local_path: String,
     pub usb_mount_path: String,
     pub usb_subfolder: String,
+    pub local_file_count: usize,
+    pub usb_file_count: usize,
     pub summary: SyncSummary,
 }
 
@@ -84,6 +86,72 @@ fn delete_sync_job(job_id: String, state: State<AppState>) -> Result<(), String>
     let mut config = state.config.lock().map_err(|e| e.to_string())?;
     remove_sync_job(&mut config, &job_id)?;
     save_config(&config)
+}
+
+#[tauri::command]
+fn check_path_exists(path: String) -> bool {
+    std::path::Path::new(&path).exists()
+}
+
+#[tauri::command]
+fn create_directory(path: String) -> Result<(), String> {
+    std::fs::create_dir_all(&path).map_err(|e| e.to_string())
+}
+
+/// Finds the removable disk whose mount point is a prefix of `path`,
+/// reads or creates `.pordata-uuid` there, and returns {mount_path, uuid}.
+#[tauri::command]
+fn init_usb_device(path: String) -> Result<serde_json::Value, String> {
+    use sysinfo::Disks;
+    let disks = Disks::new_with_refreshed_list();
+    let mut best_mount: Option<std::path::PathBuf> = None;
+    for disk in disks.list() {
+        if !disk.is_removable() {
+            continue;
+        }
+        let mp = disk.mount_point();
+        let mp_str = mp.to_string_lossy();
+        if path == mp_str.as_ref() || path.starts_with(&format!("{}/", mp_str)) {
+            let longer = best_mount
+                .as_ref()
+                .map_or(true, |b| mp.as_os_str().len() > b.as_os_str().len());
+            if longer {
+                best_mount = Some(mp.to_path_buf());
+            }
+        }
+    }
+    let mount = best_mount
+        .ok_or_else(|| "Kein entfernbares Laufwerk für diesen Pfad gefunden.".to_string())?;
+
+    let uuid_file = mount.join(".pordata-uuid");
+    let uuid = if uuid_file.exists() {
+        let s = std::fs::read_to_string(&uuid_file).map_err(|e| e.to_string())?;
+        let t = s.trim().to_owned();
+        if t.is_empty() {
+            let id = generate_device_id();
+            std::fs::write(&uuid_file, &id).map_err(|e| e.to_string())?;
+            id
+        } else {
+            t
+        }
+    } else {
+        let id = generate_device_id();
+        std::fs::write(&uuid_file, &id).map_err(|e| e.to_string())?;
+        id
+    };
+
+    Ok(serde_json::json!({
+        "mount_path": mount.to_string_lossy(),
+        "uuid": uuid,
+    }))
+}
+
+fn generate_device_id() -> String {
+    use std::time::{SystemTime, UNIX_EPOCH};
+    let d = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default();
+    format!("pd-{:x}{:08x}", d.as_secs(), d.subsec_nanos())
 }
 
 #[tauri::command]
@@ -146,6 +214,8 @@ fn run_pre_scan(
             local_path: job.local_path.clone(),
             usb_mount_path: device.mount_path.clone(),
             usb_subfolder: job.usb_subfolder.clone(),
+            local_file_count: local_state.len(),
+            usb_file_count: usb_state.len(),
             summary,
         });
     }
@@ -154,7 +224,7 @@ fn run_pre_scan(
 }
 
 #[tauri::command]
-fn start_sync(job_id: String, state: State<AppState>) -> Result<SyncSummary, String> {
+fn start_sync(job_id: String, direction: String, state: State<AppState>) -> Result<SyncSummary, String> {
     let (local_path, usb_subfolder, usb_uuid) = {
         let config = state.config.lock().map_err(|e| e.to_string())?;
         let job = config
@@ -182,7 +252,19 @@ fn start_sync(job_id: String, state: State<AppState>) -> Result<SyncSummary, Str
     let usb_state = scan_directory(&usb_root)?;
     let mut index = load_index(&idx_path)?;
     let summary = compare_states(&local_state, &usb_state, &index);
-    execute_sync(&local_root, &usb_root, &summary.operations, &mut index)?;
+
+    // Filter operations by requested direction.
+    let ops: Vec<SyncOperation> = summary.operations.iter().filter(|op| {
+        match direction.as_str() {
+            "to_usb" => matches!(op,
+                SyncOperation::CopyToUsb { .. } | SyncOperation::DeleteOnUsb { .. }),
+            "to_local" => matches!(op,
+                SyncOperation::CopyToLocal { .. } | SyncOperation::DeleteOnLocal { .. }),
+            _ => true, // "both" — all non-conflict ops (conflicts skipped by execute_sync)
+        }
+    }).cloned().collect();
+
+    execute_sync(&local_root, &usb_root, &ops, &mut index)?;
     save_index(&idx_path, &index)?;
 
     Ok(summary)
@@ -254,6 +336,9 @@ pub fn run() {
             get_sync_jobs,
             create_sync_job,
             delete_sync_job,
+            check_path_exists,
+            create_directory,
+            init_usb_device,
             open_in_file_manager,
             select_directory,
             select_directory_from,

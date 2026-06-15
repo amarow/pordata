@@ -26,11 +26,32 @@ export default function App() {
   const [conflictOps, setConflictOps] = useState<ConflictInfo[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [validLocalPaths, setValidLocalPaths] = useState<Set<string>>(new Set());
+  const [missingPathConfirm, setMissingPathConfirm] = useState<{
+    jobId: string;
+    paths: { label: string; path: string }[];
+  } | null>(null);
+  const [theme, setTheme] = useState<"dark" | "light">(() => {
+    const saved = localStorage.getItem("pordata-theme");
+    if (saved === "dark" || saved === "light") return saved;
+    return window.matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark";
+  });
+
+  useEffect(() => {
+    document.documentElement.classList.toggle("light", theme === "light");
+    localStorage.setItem("pordata-theme", theme);
+  }, [theme]);
 
   useEffect(() => {
     loadJobs();
     loadActiveDevices();
   }, []);
+
+  useEffect(() => {
+    refreshLocalPathValidity(jobs);
+    const id = setInterval(() => refreshLocalPathValidity(jobs), 3000);
+    return () => clearInterval(id);
+  }, [jobs]);
 
   useEffect(() => {
     function onKeyDown(e: KeyboardEvent) {
@@ -70,6 +91,18 @@ export default function App() {
     }
   }
 
+  async function refreshLocalPathValidity(currentJobs: SyncJob[]) {
+    if (currentJobs.length === 0) return;
+    const checks = await Promise.all(
+      currentJobs.map((j) =>
+        invoke<boolean>("check_path_exists", { path: j.local_path }).then(
+          (ok) => (ok ? j.local_path : null)
+        )
+      )
+    );
+    setValidLocalPaths(new Set(checks.filter(Boolean) as string[]));
+  }
+
   async function loadActiveDevices() {
     try {
       setActiveDevices(await invoke<DeviceInfo[]>("get_active_devices"));
@@ -101,7 +134,7 @@ export default function App() {
     }
   }
 
-  async function handleStartPreScan(jobId?: string) {
+  async function doPreScan(jobId?: string) {
     setLoading(true);
     setError(null);
     try {
@@ -122,20 +155,70 @@ export default function App() {
     }
   }
 
-  async function handleSync(jobId: string) {
+  async function handleStartPreScan(jobId?: string) {
+    if (jobId) {
+      const job = jobs.find((j) => j.id === jobId);
+      if (job) {
+        const missing: { label: string; path: string }[] = [];
+        const localOk = await invoke<boolean>("check_path_exists", { path: job.local_path });
+        if (!localOk) missing.push({ label: "Lokal", path: job.local_path });
+        const device = activeDevices.find((d) => d.uuid === job.usb_uuid);
+        if (device) {
+          const usbPath = `${device.mount_path}/${job.usb_subfolder}`;
+          const usbOk = await invoke<boolean>("check_path_exists", { path: usbPath });
+          if (!usbOk) missing.push({ label: "USB", path: usbPath });
+        }
+        if (missing.length > 0) {
+          setMissingPathConfirm({ jobId, paths: missing });
+          return;
+        }
+      }
+    }
+    await doPreScan(jobId);
+  }
+
+  async function handleConfirmCreatePaths() {
+    if (!missingPathConfirm) return;
+    const { jobId, paths } = missingPathConfirm;
+    setMissingPathConfirm(null);
+    try {
+      for (const { path } of paths) {
+        await invoke("create_directory", { path });
+      }
+      await doPreScan(jobId);
+    } catch (e) {
+      setError(String(e));
+    }
+  }
+
+  async function handleSync(jobId: string, direction: "to_usb" | "to_local" | "both" = "both") {
     setLoading(true);
     setError(null);
     try {
-      const summary = await invoke<SyncSummary>("start_sync", { jobId });
-      if (summary.conflicts > 0) {
+      const summary = await invoke<SyncSummary>("start_sync", { jobId, direction });
+
+      if (direction === "both" && summary.conflicts > 0) {
         const conflicts = summary.operations
           .filter((op) => "Conflict" in op)
           .map((op) => (op as { Conflict: ConflictInfo }).Conflict);
         setConflictJobId(jobId);
         setConflictOps(conflicts);
         setView("conflict");
-      } else {
+        return;
+      }
+
+      // Re-scan to check what's still left.
+      const refreshed = await invoke<PreScanResult[]>("run_pre_scan", { jobId });
+      if (refreshed.length === 0) {
         setView("dashboard");
+        return;
+      }
+      const s = refreshed[0].summary;
+      const allDone = s.copy_to_usb === 0 && s.copy_to_local === 0 && s.conflicts === 0;
+      if (allDone) {
+        setView("dashboard");
+      } else {
+        setScanResults((prev) => prev.map((r) => (r.job_id === jobId ? refreshed[0] : r)));
       }
     } catch (e) {
       setError(String(e));
@@ -162,6 +245,38 @@ export default function App() {
 
   return (
     <div className="app">
+      {missingPathConfirm && (
+        <div className="modal-overlay">
+          <div className="dialog-card missing-path-dialog">
+            <h2>Ordner nicht gefunden</h2>
+            <p className="missing-path-intro">
+              {missingPathConfirm.paths.length === 1
+                ? "Folgender Ordner existiert nicht:"
+                : "Folgende Ordner existieren nicht:"}
+            </p>
+            <ul className="missing-path-list">
+              {missingPathConfirm.paths.map(({ label, path }) => (
+                <li key={path}>
+                  <span className={`missing-path-label ${label === "USB" ? "label-usb" : "label-local"}`}>
+                    {label}
+                  </span>
+                  <span className="missing-path-value">{path}</span>
+                </li>
+              ))}
+            </ul>
+            <p className="missing-path-question">Sollen die Ordner jetzt angelegt werden?</p>
+            <div className="dialog-actions">
+              <button className="btn-secondary" onClick={() => setMissingPathConfirm(null)}>
+                Abbrechen
+              </button>
+              <button className="btn-primary" onClick={handleConfirmCreatePaths}>
+                Anlegen & Synchronisieren
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {error && (
         <div className="error-banner">
           <span>{error}</span>
@@ -182,6 +297,9 @@ export default function App() {
           onNewJob={() => setView("new-job")}
           onStartSync={handleStartPreScan}
           onDeleteJob={handleDeleteJob}
+          theme={theme}
+          onToggleTheme={() => setTheme((t) => (t === "dark" ? "light" : "dark"))}
+          validLocalPaths={validLocalPaths}
         />
       )}
 

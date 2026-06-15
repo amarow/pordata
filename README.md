@@ -4,18 +4,21 @@ Eine intuitive, plattformübergreifende Desktop-App zur **bidirektionalen USB-Sy
 
 ## Funktionsweise
 
-1. USB-Stick einstecken → App erkennt ihn automatisch anhand einer `.pordata-uuid`-Datei
-2. Ausstehende Änderungen werden im Hintergrund voranalysiert
-3. Ein **visueller Donut-Chart** zeigt die Änderungsverteilung (Neu, Gelöscht, Konflikte)
-4. Mit einem Klick starten — oder Konflikte interaktiv lösen
+1. USB-Stick einstecken → App erkennt ihn automatisch (oder richtet ihn beim ersten Mal ein)
+2. Ausstehende Änderungen werden per Klick auf „Sync starten" voranalysiert
+3. Zwei Richtungs-Buttons zeigen, wie viele Dateien je Richtung zu kopieren sind
+4. Einzelne Richtungen separat ausführen oder Konflikte interaktiv lösen
 
 ## Features
 
-- 🔄 **Bidirektionale Synchronisierung** mit Zustandsindex (kein blindes Überschreiben)
-- 🔌 **Automatische USB-Erkennung** via Hintergrund-Loop
-- 📁 **Mehrere Ordner-Pairs** pro USB-Stick konfigurierbar
-- ⚠️ **Konfliktlösung** mit Dateidetails (Größe, Änderungsdatum)
-- 🕐 **FAT32/exFAT-kompatibel** (2-Sekunden-Toleranz bei mtimes)
+- **Bidirektionale Synchronisierung** mit Zustandsindex (kein blindes Überschreiben)
+- **Automatische USB-Erkennung** via Hintergrund-Loop (alle 2 s)
+- **Mehrere Synchronisationen** pro USB-Stick konfigurierbar
+- **Direktionaler Sync** — „Lokal → USB" und „Lokal ← USB" unabhängig voneinander
+- **Konfliktlösung** mit Dateidetails (Größe, Datum), neueste Datei vorausgewählt
+- **FAT32/exFAT-kompatibel** (2-Sekunden-Toleranz bei mtimes)
+- **Dark / Light Mode** mit automatischer Systemerkennung
+- **Pfad-Überwachung** — ausgegrautr Pfad wenn Ordner nicht mehr erreichbar ist
 
 ## Tech Stack
 
@@ -60,7 +63,7 @@ Für End-to-End-Tests und USB-Stick-Einrichtung → [TESTING.md](./TESTING.md)
 
 ```bash
 npm run tauri build       # Produktions-Build (AppImage / .deb)
-cd src-tauri && cargo test # Rust-Unit-Tests (30/30)
+cd src-tauri && cargo test # Rust-Unit-Tests (31/31)
 ```
 
 ## Empfohlenes IDE-Setup

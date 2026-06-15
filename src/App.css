@@ -1,6 +1,7 @@
 /* ---------- Tokens ---------- */
 :root {
-  --bg: #0a0a12;
+  /* dark mode (default) */
+  --bg: #16162a;
   --surface: rgba(255, 255, 255, 0.06);
   --surface-hover: rgba(255, 255, 255, 0.09);
   --border: rgba(255, 255, 255, 0.1);
@@ -25,6 +26,25 @@
   line-height: 1.5;
   color: var(--text);
   background: var(--bg);
+}
+
+/* ---------- Light mode ---------- */
+:root.light {
+  --bg: #f2f3f8;
+  --surface: rgba(0, 0, 0, 0.04);
+  --surface-hover: rgba(0, 0, 0, 0.07);
+  --border: rgba(0, 0, 0, 0.1);
+  --border-active: rgba(0, 0, 0, 0.28);
+
+  --text: #252638;
+  --text-muted: #7a7a9a;
+  --text-strong: #0f1022;
+
+  --blue: #3070e8;
+  --green: #28a85a;
+  --orange: #d96e18;
+  --red: #d63838;
+  --gray: #a0a0c0;
 }
 
 /* ---------- Reset ---------- */
@@ -71,6 +91,63 @@ body, #root { height: 100vh; overflow: hidden; }
   opacity: 0.7;
   padding: 0 4px;
   font-size: 1rem;
+}
+
+/* ---------- Modal overlay ---------- */
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 200;
+  backdrop-filter: blur(3px);
+}
+
+.missing-path-dialog {
+  max-width: 460px;
+  width: 100%;
+}
+.missing-path-intro {
+  color: var(--text-muted);
+  font-size: 0.9rem;
+  margin-bottom: 12px;
+}
+.missing-path-list {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 16px;
+}
+.missing-path-list li {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 8px 12px;
+}
+.missing-path-label {
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  flex-shrink: 0;
+}
+.missing-path-label.label-local { color: var(--blue); }
+.missing-path-label.label-usb   { color: var(--green); }
+.missing-path-value {
+  font-size: 0.82rem;
+  color: var(--text);
+  word-break: break-all;
+}
+.missing-path-question {
+  font-size: 0.9rem;
+  color: var(--text);
+  margin-bottom: 0;
 }
 
 /* ---------- Loading overlay ---------- */
@@ -146,7 +223,7 @@ body, #root { height: 100vh; overflow: hidden; }
 input[type="text"],
 input:not([type]),
 select {
-  background: #1a1a28;
+  background: var(--surface);
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
   color: var(--text);
@@ -157,7 +234,7 @@ select {
 }
 input:focus, select:focus { border-color: var(--border-active); }
 input[readonly] { opacity: 0.7; }
-select option { background: #1a1a28; color: var(--text); }
+select option { background: var(--bg); color: var(--text); }
 
 /* ============================================================
    DASHBOARD
@@ -189,6 +266,25 @@ select option { background: #1a1a28; color: var(--text); }
   letter-spacing: -0.02em;
 }
 .header-devices { display: flex; gap: 8px; flex-wrap: wrap; }
+
+.btn-theme-toggle {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--text-muted);
+  width: 34px;
+  height: 34px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1rem;
+  transition: background 0.15s, border-color 0.15s, color 0.15s;
+}
+.btn-theme-toggle:hover {
+  background: var(--surface-hover);
+  border-color: var(--border-active);
+  color: var(--text);
+}
 
 .device-pill {
   display: inline-flex;
@@ -283,21 +379,30 @@ select option { background: #1a1a28; color: var(--text); }
   flex-shrink: 0;
 }
 
+.job-center-action {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.job-path-right {
+  text-align: right;
+  align-items: flex-end;
+}
+.job-path-local .label { color: var(--blue); }
+.job-path-right .label { color: var(--green); }
+
+.path.path-dim {
+  color: var(--text-muted);
+  opacity: 0.5;
+}
+
 .path-link {
   cursor: pointer;
   transition: color 0.15s;
 }
 .path-link:hover { color: var(--blue); }
-.job-status-badge {
-  font-size: 0.72rem;
-  font-weight: 600;
-  padding: 3px 9px;
-  border-radius: 999px;
-  background: rgba(63, 202, 122, 0.12);
-  color: var(--green);
-  border: 1px solid rgba(63, 202, 122, 0.25);
-  white-space: nowrap;
-}
 
 .job-card-actions {
   display: flex;
@@ -329,6 +434,17 @@ select option { background: #1a1a28; color: var(--text); }
   border-color: rgba(79, 142, 247, 0.4);
 }
 
+.sync-arrows {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  line-height: 1;
+  gap: 2px;
+  font-size: 1.1rem;
+}
+.sync-arrows .arrow-left  { color: var(--green); }
+.sync-arrows .arrow-right { color: var(--blue); }
+
 .btn-icon-delete {
   background: rgba(240, 85, 85, 0.08);
   color: var(--red);
@@ -339,37 +455,80 @@ select option { background: #1a1a28; color: var(--text); }
   border-color: rgba(240, 85, 85, 0.35);
 }
 
-.delete-confirm {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex-wrap: wrap;
-  justify-content: flex-end;
+.delete-confirm-dialog {
+  max-width: 360px;
+  width: 100%;
 }
 .delete-confirm-text {
-  font-size: 0.8rem;
+  font-size: 0.88rem;
   color: var(--text-muted);
-  max-width: 260px;
-  text-align: right;
+  margin-bottom: 0;
+  line-height: 1.5;
 }
 
-.dashboard-footer {
+.job-add-btn {
   display: flex;
-  justify-content: space-between;
   align-items: center;
-  padding-top: 4px;
-  flex-shrink: 0;
+  gap: 10px;
+  padding: 14px 20px;
+  background: none;
+  border: 1px dashed var(--border);
+  border-radius: var(--radius);
+  color: var(--text-muted);
+  font-size: 0.9rem;
+  font-weight: 500;
+  text-align: left;
+  transition: border-color 0.15s, color 0.15s, background 0.15s;
+  cursor: pointer;
+  width: 100%;
+}
+.job-add-btn:hover {
+  border-color: var(--border-active);
+  color: var(--text);
+  background: var(--surface);
+}
+.job-add-icon {
+  font-size: 1.2rem;
+  line-height: 1;
+  color: var(--text-muted);
 }
 
 /* ============================================================
-   NEW JOB DIALOG
+   NEW JOB VIEW
+   ============================================================ */
+.new-job-view { gap: 20px; }
+
+.new-job-form {
+  max-width: 540px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.new-job-form .label-local {
+  color: var(--blue);
+}
+.new-job-form .label-usb {
+  color: var(--green);
+}
+.usb-detected-hint {
+  font-size: 0.78rem;
+  color: var(--text-muted);
+  margin-top: 4px;
+}
+.usb-detected-hint span {
+  color: var(--green);
+  font-weight: 500;
+}
+
+/* ============================================================
+   MODAL DIALOGS (overlay-based, e.g. missing-path)
    ============================================================ */
 .dialog-view {
   align-items: center;
   justify-content: center;
 }
 .dialog-card {
-  background: rgba(255, 255, 255, 0.07);
+  background: var(--surface);
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
   padding: 32px;
@@ -377,7 +536,19 @@ select option { background: #1a1a28; color: var(--text); }
   max-width: 100%;
   backdrop-filter: blur(12px);
 }
-.dialog-card h2 {
+.dialog-titlebar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 24px;
+}
+.dialog-titlebar h2 {
+  font-size: 1.2rem;
+  font-weight: 700;
+  color: var(--text-strong);
+  margin: 0;
+}
+.dialog-card > h2 {
   font-size: 1.2rem;
   font-weight: 700;
   color: var(--text-strong);
@@ -469,7 +640,7 @@ select option { background: #1a1a28; color: var(--text); }
   border: 1px solid var(--border);
   border-radius: var(--radius);
   padding: 20px 24px;
-  width: 220px;
+  width: 200px;
   display: flex;
   flex-direction: column;
   gap: 10px;
@@ -479,8 +650,9 @@ select option { background: #1a1a28; color: var(--text); }
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.08em;
-  color: var(--text-muted);
 }
+.info-card-label.label-local { color: var(--blue); }
+.info-card-label.label-usb   { color: var(--green); }
 .info-card-path {
   font-size: 0.82rem;
   color: var(--text);
@@ -489,89 +661,81 @@ select option { background: #1a1a28; color: var(--text); }
 }
 .info-card-stat { font-size: 0.85rem; color: var(--text-muted); }
 .stat-num { font-weight: 700; font-size: 1.1rem; margin-right: 4px; }
-.stat-blue { color: var(--blue); }
+.stat-blue  { color: var(--blue); }
 .stat-green { color: var(--green); }
 
-/* ---- Donut chart ---- */
-.donut-wrapper {
+/* ---- Direction buttons ---- */
+.dir-buttons-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  align-items: stretch;
+  min-width: 180px;
+}
+
+.dir-btn {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 20px;
-}
-.donut-container {
-  position: relative;
-  width: 200px;
-  height: 200px;
-  flex-shrink: 0;
-}
-.donut-svg {
-  width: 200px;
-  height: 200px;
-}
-.donut-segment {
-  transition: stroke-width 0.15s;
-}
-.donut-center-btn {
-  position: absolute;
-  top: 50%;
-  left: 50%;
-  transform: translate(-50%, -50%);
-  width: 86px;
-  height: 86px;
-  border-radius: 50%;
-  border: none;
-  background: linear-gradient(135deg, #4f8ef7, #2860d4);
-  color: #fff;
-  font-weight: 700;
-  font-size: 0.75rem;
-  line-height: 1.25;
-  text-align: center;
-  white-space: pre-line;
-  transition: transform 0.15s, box-shadow 0.15s;
-  box-shadow: 0 4px 20px rgba(79, 142, 247, 0.35);
-}
-.donut-center-btn:hover {
-  transform: translate(-50%, -50%) scale(1.06);
-  box-shadow: 0 6px 28px rgba(79, 142, 247, 0.55);
-}
-.donut-center-btn:active {
-  transform: translate(-50%, -50%) scale(0.97);
-}
-.donut-tooltip {
-  position: absolute;
-  top: -8px;
-  left: 50%;
-  transform: translateX(-50%);
-  background: rgba(20, 20, 32, 0.95);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  padding: 4px 10px;
-  font-size: 0.78rem;
-  white-space: nowrap;
-  pointer-events: none;
-  color: var(--text);
-}
-.donut-legend {
-  display: flex;
-  flex-direction: column;
   gap: 6px;
-  min-width: 140px;
+  padding: 14px 20px;
+  border-radius: var(--radius);
+  border: 1px solid;
+  cursor: pointer;
+  transition: filter 0.15s, transform 0.1s;
+  font: inherit;
 }
-.legend-item {
+.dir-btn:active { transform: scale(0.97); }
+.dir-btn:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+  transform: none;
+}
+.dir-btn:not(:disabled):hover { filter: brightness(1.15); }
+
+.dir-btn-to-usb {
+  background: rgba(79, 142, 247, 0.12);
+  border-color: rgba(79, 142, 247, 0.3);
+  color: var(--blue);
+}
+.dir-btn-to-local {
+  background: rgba(63, 202, 122, 0.12);
+  border-color: rgba(63, 202, 122, 0.3);
+  color: var(--green);
+}
+.dir-btn-conflicts {
+  background: rgba(245, 134, 58, 0.1);
+  border-color: rgba(245, 134, 58, 0.3);
+  color: var(--orange);
+}
+
+.dir-btn-top {
   display: flex;
   align-items: center;
-  gap: 8px;
-  font-size: 0.82rem;
+  gap: 6px;
 }
-.legend-dot {
-  width: 9px;
-  height: 9px;
-  border-radius: 50%;
-  flex-shrink: 0;
+.dir-btn-count {
+  font-size: 1.6rem;
+  font-weight: 700;
+  line-height: 1;
 }
-.legend-label { color: var(--text-muted); flex: 1; }
-.legend-count { color: var(--text); font-weight: 600; }
+.dir-btn-unit {
+  font-size: 0.8rem;
+  font-weight: 500;
+  opacity: 0.85;
+  align-self: flex-end;
+  padding-bottom: 2px;
+}
+.dir-btn-arrow {
+  font-size: 0.78rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  opacity: 0.9;
+}
+.dir-btn-delete {
+  font-size: 0.72rem;
+  opacity: 0.7;
+}
 
 /* ============================================================
    CONFLICT DIALOG
@@ -675,10 +839,20 @@ select option { background: #1a1a28; color: var(--text); }
   transition: background 0.15s, border-color 0.15s, color 0.15s;
 }
 .res-btn input[type="radio"] { display: none; }
-.res-btn.active {
+.res-btn.res-local.active {
   border-color: var(--blue);
   background: rgba(79, 142, 247, 0.12);
   color: var(--blue);
+}
+.res-btn.res-usb.active {
+  border-color: var(--green);
+  background: rgba(63, 202, 122, 0.12);
+  color: var(--green);
+}
+.res-btn.res-skip.active {
+  border-color: var(--border-active);
+  background: var(--surface-hover);
+  color: var(--text);
 }
 .res-btn:hover:not(.active) {
   background: var(--surface-hover);

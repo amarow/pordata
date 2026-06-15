@@ -35,10 +35,9 @@ src-tauri/target/release/bundle/
 
 ## USB-Stick vorbereiten
 
-Der Stick muss eine Datei `.pordata-uuid` im Root-Verzeichnis haben.
-Diese Datei enthält eine eindeutige ID, anhand derer die App den Stick erkennt.
+Die App erkennt Sticks anhand einer `.pordata-uuid`-Datei im Root-Verzeichnis. Diese Datei wird beim ersten Einrichten einer neuen Synchronisation **automatisch erstellt** — kein manueller Schritt nötig.
 
-**Einmalige Einrichtung des Sticks:**
+Wer die Datei dennoch manuell anlegen will:
 
 ```bash
 # UUID generieren und auf den Stick schreiben
@@ -57,19 +56,17 @@ cat /media/$USER/MEIN_STICK/.pordata-uuid
 
 ## End-to-End-Test
 
-### Szenario 1: Erstes Ordner-Pair anlegen
+### Szenario 1: Erste Synchronisation anlegen
 
 1. App mit `npm run tauri dev` starten
-2. USB-Stick (mit `.pordata-uuid`) einstecken
-3. Die App erkennt den Stick automatisch — oben rechts erscheint ein
-   grüner Pill mit dem Mount-Pfad (z. B. `/media/ama/MEIN_STICK`)
-4. Auf **„+ Ordner-Pair hinzufügen"** klicken
-5. Im Dialog:
+2. USB-Stick einstecken (muss kein `.pordata-uuid` haben – wird automatisch angelegt)
+3. Die App erkennt den Stick — der USB-Pfad im Job-Eintrag wird farbig hervorgehoben
+4. Auf **„＋ Neue Synchronisation"** klicken (am Ende der Job-Liste)
+5. In der neuen Ansicht:
    - **Lokaler Ordner:** „Durchsuchen…" → Ordner auswählen
-   - **USB-Unterordner:** Namen eingeben, z. B. `backup`
-   - **USB-Gerät:** sollte automatisch erkannt sein
+   - **USB-Ordner:** „Durchsuchen…" → Ordner auf dem Stick wählen (`.pordata-uuid` wird automatisch erstellt)
    - „**Speichern**" klicken
-6. Dashboard zeigt jetzt das neue Pair mit **„Verbunden"**-Badge
+6. Dashboard zeigt jetzt die neue Synchronisation; USB-Pfad ist farbig hervorgehoben wenn verbunden
 
 ---
 
@@ -86,13 +83,14 @@ echo "Tief" > ~/Testordner/unterordner/c.txt
 ```
 
 **Ablauf:**
-1. Ordner-Pair mit `~/Testordner` → `backup` anlegen (Szenario 1)
-2. **„Sync starten"** klicken
+1. Synchronisation mit `~/Testordner` → `backup` anlegen (Szenario 1)
+2. **Pfeil-Button** (⬅/➡ zwischen den Pfaden) klicken
 3. Sync-Vorschau erscheint:
-   - Blauer Donut-Anteil: 3 Dateien `→ USB`
-   - Grauer Anteil: 0 (Aktuell)
-4. **Center-Button „Sync starten"** klicken
-5. Stick prüfen:
+   - **„Lokal → USB"** (blau): 3 Dateien — Button ist aktiv
+   - **„Lokal ← USB"** (grün): 0 Dateien — Button ist deaktiviert
+4. **„Lokal → USB"** klicken
+5. Vorschau schließt sich (nichts mehr zu tun), Dashboard erscheint
+6. Stick prüfen:
    ```bash
    ls /media/$USER/MEIN_STICK/backup/
    # → a.txt  b.txt  unterordner/
@@ -114,12 +112,11 @@ echo "vom Stick" > /media/$USER/MEIN_STICK/backup/neu_auf_stick.txt
 
 **Ablauf:**
 1. Stick abziehen und wieder einstecken (oder App neu starten)
-2. **„Sync starten"** klicken
-3. Donut-Vorschau zeigt:
-   - **Blau (→ USB):** 1 (a.txt ist lokal neuer)
-   - **Grün (→ Lokal):** 1 (neu_auf_stick.txt)
-   - **Grau (Aktuell):** b.txt, unterordner/c.txt
-4. Sync ausführen
+2. **Pfeil-Button** auf dem Job klicken
+3. Sync-Vorschau zeigt:
+   - **„Lokal → USB"** (blau): 1 Datei (a.txt ist lokal neuer)
+   - **„Lokal ← USB"** (grün): 1 Datei (neu_auf_stick.txt)
+4. Beide Buttons einzeln ausführen oder nacheinander; Vorschau bleibt offen bis beide Richtungen erledigt
 5. Ergebnis prüfen:
    ```bash
    cat /media/$USER/MEIN_STICK/backup/a.txt   # → "aktualisiert"
@@ -142,30 +139,28 @@ echo "stick-version" > /media/$USER/MEIN_STICK/backup/b.txt
 
 **Ablauf:**
 1. Stick einstecken
-2. **„Sync starten"** → Vorschau zeigt **Roter Anteil: 1 (Konflikt)**
-3. **Center-Button „Konflikte lösen"** klickt sich in den Conflict-Dialog
-4. `b.txt` ist gelistet mit:
-   - Lokal: Dateigröße + Datum
-   - USB: Dateigröße + Datum
-5. Entscheidung treffen: **„Lokal"** / **„USB"** / **„Skip"**
-6. **„Konflikte bestätigen"** → zurück zum Dashboard
+2. **Pfeil-Button** auf dem Job klicken → Vorschau zeigt orangenen **„1 Konflikt lösen"**-Button
+3. **„1 Konflikt lösen"** klicken → Conflict-Dialog öffnet sich
+4. `b.txt` ist gelistet mit Größe und Datum beider Seiten; die neuere Seite ist vorausgewählt
+5. Entscheidung prüfen oder ändern: **„Lokal"** (blau) / **„USB"** (grün) / **„Skip"**
+6. Optional: **„Alle: Neueste"** für automatische Vorauswahl
+7. **„Synchronisieren"** → zurück zum Dashboard
 
 ---
 
 ### Szenario 5: Stick abziehen
 
 1. Stick abziehen während die App läuft
-2. Der grüne Pill oben rechts verschwindet → **„Kein USB verbunden"**
-3. Job-Karte zeigt kein „Verbunden"-Badge mehr
-4. **„Sync starten"**-Button ist nicht mehr sichtbar
+2. USB-Pfad in der Job-Karte wird ausgegraut
+3. Pfeil-Button (Sync starten) verschwindet — nur statisches ↔ Symbol bleibt
 
 ---
 
-### Szenario 6: Mehrere Ordner-Pairs
+### Szenario 6: Mehrere Synchronisationen
 
-1. Mehrere Ordner-Pairs auf demselben Stick anlegen (verschiedene `usb_subfolder`)
+1. Mehrere Synchronisationen auf demselben Stick anlegen (verschiedene `usb_subfolder`)
 2. Beim Sync-Preview erscheint eine **Tab-Leiste** oben
-3. Jeder Tab zeigt einen eigenen Donut-Chart für das jeweilige Pair
+3. Jeder Tab zeigt eigene Richtungs-Buttons und Dateizahlen für die jeweilige Synchronisation
 
 ---
 

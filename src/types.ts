@@ -40,6 +40,8 @@ export interface PreScanResult {
   local_path: string;
   usb_mount_path: string;
   usb_subfolder: string;
+  local_file_count: number;
+  usb_file_count: number;
   summary: SyncSummary;
 }
 

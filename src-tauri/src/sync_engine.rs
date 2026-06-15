@@ -201,6 +201,12 @@ pub fn compare_states(
     usb: &HashMap<String, FileState>,
     last_index: &SyncIndex,
 ) -> SyncSummary {
+    // If the local folder contains no files at all while the index is non-empty,
+    // treat it as a fresh/reset local folder rather than "everything was deleted
+    // locally". This prevents wiping the USB when the user pairs a new empty
+    // local folder with an existing USB folder.
+    let local_appears_reset = local.is_empty() && !last_index.files.is_empty();
+
     let all_paths: HashSet<&String> = local.keys().chain(usb.keys()).collect();
 
     let mut operations = Vec::new();
@@ -228,13 +234,15 @@ pub fn compare_states(
 
             // --- File only on USB side ------------------------------------
             (None, Some(_usb_fs)) => {
-                if in_index.is_some() {
-                    // Was synced before → deleted locally since then.
+                if in_index.is_some() && !local_appears_reset {
+                    // Was synced before and local folder still has other files
+                    // → this file was deleted locally since the last sync.
                     SyncOperation::DeleteOnUsb {
                         rel_path: rel_path.clone(),
                     }
                 } else {
-                    // Never synced → new USB file.
+                    // Either never synced, or local folder is completely empty
+                    // (fresh/reset) → pull from USB.
                     SyncOperation::CopyToLocal {
                         rel_path: rel_path.clone(),
                     }
@@ -631,23 +639,64 @@ mod tests {
     }
 
     // -----------------------------------------------------------------------
-    // 5. File deleted locally (was in index) → DeleteOnUsb
+    // 5. File deleted locally (was in index, other local files still exist)
+    //    → DeleteOnUsb
     // -----------------------------------------------------------------------
     #[test]
     fn test_deleted_locally() {
-        let local = HashMap::new();
-        let usb = state_map(vec![fs_entry("e.txt", 5000, 50)]);
+        // "other.txt" still exists locally — folder is not empty — so "e.txt"
+        // was specifically deleted, not the whole folder reset.
+        let local = state_map(vec![fs_entry("other.txt", 1000, 5)]);
+        let usb = state_map(vec![
+            fs_entry("e.txt", 5000, 50),
+            fs_entry("other.txt", 1000, 5),
+        ]);
         let idx = SyncIndex {
-            files: state_map(vec![fs_entry("e.txt", 5000, 50)]),
+            files: state_map(vec![
+                fs_entry("e.txt", 5000, 50),
+                fs_entry("other.txt", 1000, 5),
+            ]),
         };
 
         let summary = compare_states(&local, &usb, &idx);
 
         assert_eq!(summary.delete, 1);
+        let delete_op = summary
+            .operations
+            .iter()
+            .find(|op| matches!(op, SyncOperation::DeleteOnUsb { .. }));
         assert!(matches!(
-            &summary.operations[0],
-            SyncOperation::DeleteOnUsb { rel_path } if rel_path == "e.txt"
+            delete_op,
+            Some(SyncOperation::DeleteOnUsb { rel_path }) if rel_path == "e.txt"
         ));
+    }
+
+    // -----------------------------------------------------------------------
+    // 5b. Local folder is completely empty, index is non-empty, USB has files
+    //     → CopyToLocal (fresh/reset local folder, not intentional delete)
+    // -----------------------------------------------------------------------
+    #[test]
+    fn test_fresh_local_folder_copies_from_usb() {
+        let local = HashMap::new();
+        let usb = state_map(vec![
+            fs_entry("e.txt", 5000, 50),
+            fs_entry("f.txt", 6000, 60),
+        ]);
+        let idx = SyncIndex {
+            files: state_map(vec![
+                fs_entry("e.txt", 5000, 50),
+                fs_entry("f.txt", 6000, 60),
+            ]),
+        };
+
+        let summary = compare_states(&local, &usb, &idx);
+
+        assert_eq!(summary.copy_to_local, 2);
+        assert_eq!(summary.delete, 0);
+        assert!(summary
+            .operations
+            .iter()
+            .all(|op| matches!(op, SyncOperation::CopyToLocal { .. })));
     }
 
     // -----------------------------------------------------------------------

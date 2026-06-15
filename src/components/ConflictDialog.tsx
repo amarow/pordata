@@ -24,10 +24,10 @@ function formatDate(secs: number): string {
   });
 }
 
-const OPTIONS: { value: Resolution; label: string }[] = [
-  { value: "KeepLocal", label: "Lokal" },
-  { value: "KeepUsb", label: "USB" },
-  { value: "Skip", label: "Skip" },
+const OPTIONS: { value: Resolution; label: string; cls: string }[] = [
+  { value: "KeepLocal", label: "Lokal", cls: "res-local" },
+  { value: "KeepUsb",   label: "USB",   cls: "res-usb"   },
+  { value: "Skip",      label: "Skip",  cls: "res-skip"  },
 ];
 
 export default function ConflictDialog({
@@ -37,13 +37,21 @@ export default function ConflictDialog({
   onCancel,
 }: Props) {
   const [resolutions, setResolutions] = useState<Record<string, Resolution>>(
-    Object.fromEntries(conflicts.map((c) => [c.rel_path, "Skip" as Resolution]))
+    Object.fromEntries(conflicts.map((c) => [
+      c.rel_path,
+      c.local_mtime >= c.usb_mtime ? "KeepLocal" : "KeepUsb",
+    ]))
   );
 
   function setAll(r: Resolution) {
-    setResolutions(
-      Object.fromEntries(conflicts.map((c) => [c.rel_path, r]))
-    );
+    setResolutions(Object.fromEntries(conflicts.map((c) => [c.rel_path, r])));
+  }
+
+  function setAllNewest() {
+    setResolutions(Object.fromEntries(conflicts.map((c) => [
+      c.rel_path,
+      c.local_mtime >= c.usb_mtime ? "KeepLocal" : "KeepUsb",
+    ])));
   }
 
   function handleSubmit() {
@@ -64,6 +72,9 @@ export default function ConflictDialog({
           Konflikte lösen <span className="badge">{conflicts.length}</span>
         </h2>
         <div className="bulk-actions">
+          <button className="btn-secondary btn-sm" onClick={setAllNewest}>
+            Alle: Neueste
+          </button>
           <button className="btn-secondary btn-sm" onClick={() => setAll("KeepLocal")}>
             Alle: Lokal
           </button>
@@ -96,7 +107,7 @@ export default function ConflictDialog({
               {OPTIONS.map((opt) => (
                 <label
                   key={opt.value}
-                  className={`res-btn ${
+                  className={`res-btn ${opt.cls} ${
                     resolutions[c.rel_path] === opt.value ? "active" : ""
                   }`}
                 >
@@ -122,7 +133,7 @@ export default function ConflictDialog({
 
       <div className="conflict-footer">
         <button className="btn-primary" onClick={handleSubmit}>
-          Konflikte bestätigen
+          Synchronisieren
         </button>
       </div>
     </div>
