@@ -234,7 +234,13 @@ struct SyncProgressEvent {
 }
 
 #[tauri::command]
-fn start_sync(job_id: String, direction: String, app: tauri::AppHandle, state: State<'_, AppState>) -> Result<SyncSummary, String> {
+async fn start_sync(
+    job_id: String,
+    direction: String,
+    app: tauri::AppHandle,
+    state: State<'_, AppState>,
+) -> Result<SyncSummary, String> {
+    // Extract all data we need before entering the blocking thread.
     let (local_path, usb_subfolder, usb_uuid) = {
         let config = state.config.lock().map_err(|e| e.to_string())?;
         let job = config
@@ -253,39 +259,58 @@ fn start_sync(job_id: String, direction: String, app: tauri::AppHandle, state: S
             .ok_or_else(|| format!("USB device '{usb_uuid}' is not connected"))?
     };
 
-    let local_root = PathBuf::from(&local_path);
-    let usb_root = PathBuf::from(&mount_path).join(&usb_subfolder);
-    std::fs::create_dir_all(&usb_root).map_err(|e| e.to_string())?;
-    let idx_path = job_index_path(&job_id);
-
-    let local_state = scan_directory(&local_root)?;
-    let usb_state = scan_directory(&usb_root)?;
-    let mut index = load_index(&idx_path)?;
-    let summary = compare_states(&local_state, &usb_state, &index);
-
-    // Filter operations by requested direction.
-    let ops: Vec<SyncOperation> = summary.operations.iter().filter(|op| {
-        match direction.as_str() {
-            "to_usb" => matches!(op,
-                SyncOperation::CopyToUsb { .. } | SyncOperation::DeleteOnUsb { .. }),
-            "to_local" => matches!(op,
-                SyncOperation::CopyToLocal { .. } | SyncOperation::DeleteOnLocal { .. }),
-            _ => true, // "both" — all non-conflict ops (conflicts skipped by execute_sync)
-        }
-    }).cloned().collect();
-
     let cancel = Arc::clone(&state.cancel_sync);
     cancel.store(false, Ordering::Relaxed);
-    execute_sync(&local_root, &usb_root, &ops, &mut index, &cancel, |done, total, file| {
-        let _ = app.emit("sync-progress", SyncProgressEvent {
-            done,
-            total,
-            current_file: file.to_string(),
-        });
-    })?;
-    save_index(&idx_path, &index)?;
+    let idx_path = job_index_path(&job_id);
 
-    Ok(summary)
+    // Run all blocking file I/O on a dedicated thread so the GTK/WebKit
+    // event loop stays responsive and progress events can be delivered.
+    tauri::async_runtime::spawn_blocking(move || {
+        let local_root = PathBuf::from(&local_path);
+        let usb_root = PathBuf::from(&mount_path).join(&usb_subfolder);
+        std::fs::create_dir_all(&usb_root).map_err(|e| e.to_string())?;
+
+        let local_state = scan_directory(&local_root)?;
+        let usb_state = scan_directory(&usb_root)?;
+        let mut index = load_index(&idx_path)?;
+        let summary = compare_states(&local_state, &usb_state, &index);
+
+        let ops: Vec<SyncOperation> = summary.operations.iter().filter(|op| {
+            match direction.as_str() {
+                "to_usb" => matches!(op,
+                    SyncOperation::CopyToUsb { .. } | SyncOperation::DeleteOnUsb { .. }),
+                "to_local" => matches!(op,
+                    SyncOperation::CopyToLocal { .. } | SyncOperation::DeleteOnLocal { .. }),
+                _ => true,
+            }
+        }).cloned().collect();
+
+        // Throttle events: emit at most every 100 ms or when percentage
+        // changes by ≥ 1 % to avoid flooding the webview message queue.
+        let mut last_emit = std::time::Instant::now();
+        let mut last_pct: usize = 0;
+        execute_sync(&local_root, &usb_root, &ops, &mut index, &cancel, |done, total, file| {
+            let pct = if total > 0 { done * 100 / total } else { 0 };
+            let now = std::time::Instant::now();
+            if done == total
+                || pct > last_pct
+                || now.duration_since(last_emit).as_millis() >= 100
+            {
+                let _ = app.emit("sync-progress", SyncProgressEvent {
+                    done,
+                    total,
+                    current_file: file.to_string(),
+                });
+                last_emit = now;
+                last_pct = pct;
+            }
+        })?;
+
+        save_index(&idx_path, &index)?;
+        Ok::<SyncSummary, String>(summary)
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 #[tauri::command]

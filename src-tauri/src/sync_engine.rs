@@ -374,10 +374,10 @@ pub fn execute_sync<F>(
     operations: &[SyncOperation],
     index: &mut SyncIndex,
     cancel: &std::sync::atomic::AtomicBool,
-    progress: F,
+    mut progress: F,
 ) -> Result<usize, String>
 where
-    F: Fn(usize, usize, &str),
+    F: FnMut(usize, usize, &str),
 {
     let total = operations
         .iter()
