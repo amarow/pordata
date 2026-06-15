@@ -3,7 +3,9 @@ import type { PreScanResult } from "../types";
 interface SyncProgress {
   done: number;
   total: number;
+  copiesDone: number;
   currentFile: string;
+  direction: string;
 }
 
 interface Props {
@@ -63,7 +65,11 @@ export default function SyncPreview({ results, activeIndex, onTabChange, onSync,
           <div className="info-card-label label-local">Lokal</div>
           <div className="info-card-path">{active.local_path}</div>
           <div className="info-card-stat">
-            <span className="stat-num stat-blue">{active.local_file_count}</span>
+            <span className="stat-num stat-blue">
+              {syncProgress?.direction === "to_local"
+                ? active.local_file_count + syncProgress.copiesDone
+                : active.local_file_count}
+            </span>
             Datei{active.local_file_count !== 1 ? "en" : ""}
           </div>
         </div>
@@ -156,7 +162,11 @@ export default function SyncPreview({ results, activeIndex, onTabChange, onSync,
             {active.usb_mount_path}/{active.usb_subfolder}
           </div>
           <div className="info-card-stat">
-            <span className="stat-num stat-green">{active.usb_file_count}</span>
+            <span className="stat-num stat-green">
+              {syncProgress?.direction === "to_usb"
+                ? active.usb_file_count + syncProgress.copiesDone
+                : active.usb_file_count}
+            </span>
             Datei{active.usb_file_count !== 1 ? "en" : ""}
           </div>
         </div>

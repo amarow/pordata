@@ -27,7 +27,9 @@ export default function App() {
   const [syncProgress, setSyncProgress] = useState<{
     done: number;
     total: number;
+    copiesDone: number;
     currentFile: string;
+    direction: string;
   } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [validLocalPaths, setValidLocalPaths] = useState<Set<string>>(new Set());
@@ -69,7 +71,7 @@ export default function App() {
   }, [view]);
 
   useEffect(() => {
-    const unlisten = listen<{ done: number; total: number; currentFile: string }>(
+    const unlisten = listen<{ done: number; total: number; copiesDone: number; currentFile: string; direction: string }>(
       "sync-progress",
       (e) => setSyncProgress(e.payload)
     );
@@ -201,7 +203,7 @@ export default function App() {
   }
 
   async function handleSync(jobId: string, direction: "to_usb" | "to_local" | "both" = "both") {
-    setSyncProgress({ done: 0, total: 0, currentFile: "" });
+    setSyncProgress({ done: 0, total: 0, copiesDone: 0, currentFile: "", direction });
     setError(null);
     try {
       const summary = await invoke<SyncSummary>("start_sync", { jobId, direction });

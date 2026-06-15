@@ -230,7 +230,9 @@ fn run_pre_scan(
 struct SyncProgressEvent {
     done: usize,
     total: usize,
+    copies_done: usize,
     current_file: String,
+    direction: String,
 }
 
 #[tauri::command]
@@ -289,7 +291,9 @@ async fn start_sync(
         // changes by ≥ 1 % to avoid flooding the webview message queue.
         let mut last_emit = std::time::Instant::now();
         let mut last_pct: usize = 0;
-        execute_sync(&local_root, &usb_root, &ops, &mut index, &cancel, |done, total, file| {
+        let mut copies_done: usize = 0;
+        execute_sync(&local_root, &usb_root, &ops, &mut index, &cancel, |done, total, file, is_copy| {
+            if is_copy { copies_done += 1; }
             let pct = if total > 0 { done * 100 / total } else { 0 };
             let now = std::time::Instant::now();
             if done == total
@@ -299,7 +303,9 @@ async fn start_sync(
                 let _ = app.emit("sync-progress", SyncProgressEvent {
                     done,
                     total,
+                    copies_done,
                     current_file: file.to_string(),
+                    direction: direction.clone(),
                 });
                 last_emit = now;
                 last_pct = pct;
