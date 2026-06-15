@@ -368,15 +368,27 @@ pub fn save_index(index_path: &Path, index: &SyncIndex) -> Result<(), String> {
 /// written to disk.
 ///
 /// Returns the number of operations that were actually executed.
-pub fn execute_sync(
+pub fn execute_sync<F>(
     local_root: &Path,
     usb_root: &Path,
     operations: &[SyncOperation],
     index: &mut SyncIndex,
-) -> Result<usize, String> {
+    cancel: &std::sync::atomic::AtomicBool,
+    progress: F,
+) -> Result<usize, String>
+where
+    F: Fn(usize, usize, &str),
+{
+    let total = operations
+        .iter()
+        .filter(|op| !matches!(op, SyncOperation::UpToDate { .. } | SyncOperation::Conflict { .. }))
+        .count();
     let mut executed: usize = 0;
 
     for op in operations {
+        if cancel.load(std::sync::atomic::Ordering::Relaxed) {
+            return Err("Sync abgebrochen".to_string());
+        }
         match op {
             SyncOperation::CopyToUsb { rel_path } => {
                 let src = local_root.join(rel_path);
@@ -399,6 +411,7 @@ pub fn execute_sync(
                     },
                 );
                 executed += 1;
+                progress(executed, total, rel_path);
             }
 
             SyncOperation::CopyToLocal { rel_path } => {
@@ -421,6 +434,7 @@ pub fn execute_sync(
                     },
                 );
                 executed += 1;
+                progress(executed, total, rel_path);
             }
 
             SyncOperation::DeleteOnUsb { rel_path } => {
@@ -432,6 +446,7 @@ pub fn execute_sync(
                 }
                 index.files.remove(rel_path);
                 executed += 1;
+                progress(executed, total, rel_path);
             }
 
             SyncOperation::DeleteOnLocal { rel_path } => {
@@ -443,6 +458,7 @@ pub fn execute_sync(
                 }
                 index.files.remove(rel_path);
                 executed += 1;
+                progress(executed, total, rel_path);
             }
 
             // Conflicts and up-to-date files are intentionally skipped.
@@ -871,7 +887,7 @@ mod tests {
         }];
         let mut idx = SyncIndex::empty();
 
-        let count = execute_sync(&local_root, &usb_root, &ops, &mut idx).unwrap();
+        let count = execute_sync(&local_root, &usb_root, &ops, &mut idx, &std::sync::atomic::AtomicBool::new(false), |_, _, _| {}).unwrap();
 
         assert_eq!(count, 1);
         assert!(usb_root.join("new.txt").exists());
@@ -897,7 +913,7 @@ mod tests {
         }];
         let mut idx = SyncIndex::empty();
 
-        let count = execute_sync(&local_root, &usb_root, &ops, &mut idx).unwrap();
+        let count = execute_sync(&local_root, &usb_root, &ops, &mut idx, &std::sync::atomic::AtomicBool::new(false), |_, _, _| {}).unwrap();
 
         assert_eq!(count, 1);
         assert!(local_root.join("from_usb.txt").exists());
@@ -926,7 +942,7 @@ mod tests {
             rel_path: "old.txt".into(),
         }];
 
-        let count = execute_sync(&local_root, &usb_root, &ops, &mut idx).unwrap();
+        let count = execute_sync(&local_root, &usb_root, &ops, &mut idx, &std::sync::atomic::AtomicBool::new(false), |_, _, _| {}).unwrap();
 
         assert_eq!(count, 1);
         assert!(!usb_root.join("old.txt").exists());
@@ -951,7 +967,7 @@ mod tests {
             rel_path: "gone.txt".into(),
         }];
 
-        let count = execute_sync(&local_root, &usb_root, &ops, &mut idx).unwrap();
+        let count = execute_sync(&local_root, &usb_root, &ops, &mut idx, &std::sync::atomic::AtomicBool::new(false), |_, _, _| {}).unwrap();
 
         assert_eq!(count, 1);
         assert!(!local_root.join("gone.txt").exists());
@@ -980,7 +996,7 @@ mod tests {
         ];
         let mut idx = SyncIndex::empty();
 
-        let count = execute_sync(&local_root, &usb_root, &ops, &mut idx).unwrap();
+        let count = execute_sync(&local_root, &usb_root, &ops, &mut idx, &std::sync::atomic::AtomicBool::new(false), |_, _, _| {}).unwrap();
         assert_eq!(count, 0);
     }
 
@@ -1002,7 +1018,7 @@ mod tests {
         }];
         let mut idx = SyncIndex::empty();
 
-        let count = execute_sync(&local_root, &usb_root, &ops, &mut idx).unwrap();
+        let count = execute_sync(&local_root, &usb_root, &ops, &mut idx, &std::sync::atomic::AtomicBool::new(false), |_, _, _| {}).unwrap();
 
         assert_eq!(count, 1);
         assert!(usb_root.join("a/b/c.txt").exists());
@@ -1138,7 +1154,7 @@ mod tests {
 
         let mut idx = SyncIndex::empty();
         let count =
-            execute_sync(&local_root, &usb_root, &summary.operations, &mut idx).unwrap();
+            execute_sync(&local_root, &usb_root, &summary.operations, &mut idx, &std::sync::atomic::AtomicBool::new(false), |_, _, _| {}).unwrap();
 
         assert_eq!(count, 2); // CopyToUsb + CopyToLocal
         assert!(usb_root.join("only_local.txt").exists());

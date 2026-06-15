@@ -7,7 +7,8 @@ use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
 use serde::{Deserialize, Serialize};
-use tauri::State;
+use std::sync::atomic::{AtomicBool, Ordering};
+use tauri::{Emitter, State};
 
 use crate::config::{add_sync_job, remove_sync_job, save_config, Config, SyncJob};
 use crate::device_monitor::{ActiveDevices, DeviceInfo};
@@ -23,6 +24,7 @@ use crate::sync_engine::{
 pub struct AppState {
     pub config: Arc<Mutex<Config>>,
     pub active_devices: ActiveDevices,
+    pub cancel_sync: Arc<AtomicBool>,
 }
 
 // ---------------------------------------------------------------------------
@@ -223,8 +225,16 @@ fn run_pre_scan(
     Ok(results)
 }
 
+#[derive(Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+struct SyncProgressEvent {
+    done: usize,
+    total: usize,
+    current_file: String,
+}
+
 #[tauri::command]
-fn start_sync(job_id: String, direction: String, state: State<AppState>) -> Result<SyncSummary, String> {
+fn start_sync(job_id: String, direction: String, app: tauri::AppHandle, state: State<'_, AppState>) -> Result<SyncSummary, String> {
     let (local_path, usb_subfolder, usb_uuid) = {
         let config = state.config.lock().map_err(|e| e.to_string())?;
         let job = config
@@ -264,10 +274,23 @@ fn start_sync(job_id: String, direction: String, state: State<AppState>) -> Resu
         }
     }).cloned().collect();
 
-    execute_sync(&local_root, &usb_root, &ops, &mut index)?;
+    let cancel = Arc::clone(&state.cancel_sync);
+    cancel.store(false, Ordering::Relaxed);
+    execute_sync(&local_root, &usb_root, &ops, &mut index, &cancel, |done, total, file| {
+        let _ = app.emit("sync-progress", SyncProgressEvent {
+            done,
+            total,
+            current_file: file.to_string(),
+        });
+    })?;
     save_index(&idx_path, &index)?;
 
     Ok(summary)
+}
+
+#[tauri::command]
+fn cancel_sync(state: State<'_, AppState>) {
+    state.cancel_sync.store(true, Ordering::Relaxed);
 }
 
 #[tauri::command]
@@ -321,12 +344,14 @@ pub fn run() {
     let config: Arc<Mutex<Config>> =
         Arc::new(Mutex::new(crate::config::load_config().unwrap_or_default()));
     let active_devices: ActiveDevices = Arc::new(Mutex::new(HashMap::new()));
+    let cancel_flag: Arc<AtomicBool> = Arc::new(AtomicBool::new(false));
 
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .manage(AppState {
             config: config.clone(),
             active_devices: active_devices.clone(),
+            cancel_sync: cancel_flag.clone(),
         })
         .setup(move |app| {
             device_monitor::start_monitor(app.handle().clone(), active_devices);
@@ -344,6 +369,7 @@ pub fn run() {
             select_directory_from,
             run_pre_scan,
             start_sync,
+            cancel_sync,
             resolve_conflicts,
             get_active_devices,
         ])

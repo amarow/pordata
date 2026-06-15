@@ -24,7 +24,11 @@ export default function App() {
   const [activeScanIndex, setActiveScanIndex] = useState(0);
   const [conflictJobId, setConflictJobId] = useState<string | null>(null);
   const [conflictOps, setConflictOps] = useState<ConflictInfo[]>([]);
-  const [loading, setLoading] = useState(false);
+  const [syncProgress, setSyncProgress] = useState<{
+    done: number;
+    total: number;
+    currentFile: string;
+  } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [validLocalPaths, setValidLocalPaths] = useState<Set<string>>(new Set());
   const [missingPathConfirm, setMissingPathConfirm] = useState<{
@@ -63,6 +67,14 @@ export default function App() {
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [view]);
+
+  useEffect(() => {
+    const unlisten = listen<{ done: number; total: number; currentFile: string }>(
+      "sync-progress",
+      (e) => setSyncProgress(e.payload)
+    );
+    return () => { unlisten.then((f) => f()); };
+  }, []);
 
   useEffect(() => {
     const unlistenAttached = listen<{ uuid: string; mount_path: string }>(
@@ -135,7 +147,6 @@ export default function App() {
   }
 
   async function doPreScan(jobId?: string) {
-    setLoading(true);
     setError(null);
     try {
       const results = await invoke<PreScanResult[]>("run_pre_scan", {
@@ -150,8 +161,6 @@ export default function App() {
       setView("sync-preview");
     } catch (e) {
       setError(String(e));
-    } finally {
-      setLoading(false);
     }
   }
 
@@ -192,7 +201,7 @@ export default function App() {
   }
 
   async function handleSync(jobId: string, direction: "to_usb" | "to_local" | "both" = "both") {
-    setLoading(true);
+    setSyncProgress({ done: 0, total: 0, currentFile: "" });
     setError(null);
     try {
       const summary = await invoke<SyncSummary>("start_sync", { jobId, direction });
@@ -223,23 +232,24 @@ export default function App() {
     } catch (e) {
       setError(String(e));
     } finally {
-      setLoading(false);
+      setSyncProgress(null);
     }
+  }
+
+  function handleCancelSync() {
+    invoke("cancel_sync").catch(() => {});
   }
 
   async function handleResolveConflicts(
     jobId: string,
     resolutions: ConflictResolutionInput[]
   ) {
-    setLoading(true);
     setError(null);
     try {
       await invoke("resolve_conflicts", { jobId, resolutions });
       setView("dashboard");
     } catch (e) {
       setError(String(e));
-    } finally {
-      setLoading(false);
     }
   }
 
@@ -284,11 +294,6 @@ export default function App() {
         </div>
       )}
 
-      {loading && (
-        <div className="loading-overlay">
-          <div className="spinner" />
-        </div>
-      )}
 
       {view === "dashboard" && (
         <Dashboard
@@ -318,6 +323,8 @@ export default function App() {
           onTabChange={setActiveScanIndex}
           onSync={handleSync}
           onBack={() => setView("dashboard")}
+          syncProgress={syncProgress}
+          onCancelSync={handleCancelSync}
         />
       )}
 
