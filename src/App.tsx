@@ -5,7 +5,6 @@ import type {
   SyncJob,
   DeviceInfo,
   PreScanResult,
-  SyncSummary,
   ConflictInfo,
   ConflictResolutionInput,
   View,
@@ -202,21 +201,22 @@ export default function App() {
     }
   }
 
+  function handleOpenConflicts(jobId: string) {
+    const result = scanResults.find((r) => r.job_id === jobId);
+    if (!result) return;
+    const conflicts = result.summary.operations
+      .filter((op) => "Conflict" in op)
+      .map((op) => (op as { Conflict: ConflictInfo }).Conflict);
+    setConflictJobId(jobId);
+    setConflictOps(conflicts);
+    setView("conflict");
+  }
+
   async function handleSync(jobId: string, direction: "to_usb" | "to_local" | "both" = "both") {
     setSyncProgress({ done: 0, total: 0, copiesDone: 0, currentFile: "", direction });
     setError(null);
     try {
-      const summary = await invoke<SyncSummary>("start_sync", { jobId, direction });
-
-      if (direction === "both" && summary.conflicts > 0) {
-        const conflicts = summary.operations
-          .filter((op) => "Conflict" in op)
-          .map((op) => (op as { Conflict: ConflictInfo }).Conflict);
-        setConflictJobId(jobId);
-        setConflictOps(conflicts);
-        setView("conflict");
-        return;
-      }
+      await invoke("start_sync", { jobId, direction });
 
       // Re-scan to check what's still left.
       const refreshed = await invoke<PreScanResult[]>("run_pre_scan", { jobId });
@@ -324,6 +324,7 @@ export default function App() {
           activeIndex={activeScanIndex}
           onTabChange={setActiveScanIndex}
           onSync={handleSync}
+          onConflicts={handleOpenConflicts}
           onBack={() => setView("dashboard")}
           syncProgress={syncProgress}
           onCancelSync={handleCancelSync}

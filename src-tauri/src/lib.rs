@@ -8,7 +8,7 @@ use std::sync::{Arc, Mutex};
 
 use serde::{Deserialize, Serialize};
 use std::sync::atomic::{AtomicBool, Ordering};
-use tauri::{Emitter, State};
+use tauri::{Emitter, Manager, State};
 
 use crate::config::{add_sync_job, remove_sync_job, save_config, Config, SyncJob};
 use crate::device_monitor::{ActiveDevices, DeviceInfo};
@@ -379,12 +379,18 @@ pub fn run() {
 
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_window_state::Builder::new().build())
         .manage(AppState {
             config: config.clone(),
             active_devices: active_devices.clone(),
             cancel_sync: cancel_flag.clone(),
         })
         .setup(move |app| {
+            if let Some(window) = app.get_webview_window("main") {
+                let _ = window.set_icon(tauri::image::Image::from_bytes(include_bytes!(
+                    "../icons/icon.png"
+                ))?);
+            }
             device_monitor::start_monitor(app.handle().clone(), active_devices);
             Ok(())
         })

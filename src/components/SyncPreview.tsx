@@ -13,6 +13,7 @@ interface Props {
   activeIndex: number;
   onTabChange: (i: number) => void;
   onSync: (jobId: string, direction: "to_usb" | "to_local" | "both") => void;
+  onConflicts: (jobId: string) => void;
   onBack: () => void;
   syncProgress: SyncProgress | null;
   onCancelSync: () => void;
@@ -26,7 +27,7 @@ function FileIcon() {
   );
 }
 
-export default function SyncPreview({ results, activeIndex, onTabChange, onSync, onBack, syncProgress, onCancelSync }: Props) {
+export default function SyncPreview({ results, activeIndex, onTabChange, onSync, onConflicts, onBack, syncProgress, onCancelSync }: Props) {
   const active = results[activeIndex];
   const s = active.summary;
 
@@ -142,7 +143,7 @@ export default function SyncPreview({ results, activeIndex, onTabChange, onSync,
               {s.conflicts > 0 && (
                 <button
                   className="dir-btn dir-btn-conflicts"
-                  onClick={() => onSync(active.job_id, "both")}
+                  onClick={() => onConflicts(active.job_id)}
                 >
                   <span className="dir-btn-top">
                     <span className="dir-btn-count">{s.conflicts}</span>
