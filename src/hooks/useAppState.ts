@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import type {
@@ -26,6 +26,9 @@ export function useAppState() {
     currentFile: string;
     direction: string;
   } | null>(null);
+  const syncProgressRef = useRef(syncProgress);
+  useEffect(() => { syncProgressRef.current = syncProgress; }, [syncProgress]);
+
   const [error, setError] = useState<string | null>(null);
   const [skippedFiles, setSkippedFiles] = useState<string[]>([]);
   const [validLocalPaths, setValidLocalPaths] = useState<Set<string>>(new Set());
@@ -64,6 +67,20 @@ export function useAppState() {
     }
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
+  }, [view]);
+
+  useEffect(() => {
+    if (view !== "sync-preview") return;
+    const id = setInterval(async () => {
+      if (syncProgressRef.current !== null) return;
+      try {
+        const refreshed = await invoke<PreScanResult[]>("run_pre_scan", { jobId: null });
+        if (refreshed.length > 0) setScanResults(refreshed);
+      } catch {
+        // Gerät zwischenzeitlich entfernt o.ä. — still ignorieren
+      }
+    }, 5000);
+    return () => clearInterval(id);
   }, [view]);
 
   useEffect(() => {
