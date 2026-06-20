@@ -292,7 +292,7 @@ async fn start_sync(
         let mut last_emit = std::time::Instant::now();
         let mut last_pct: usize = 0;
         let mut copies_done: usize = 0;
-        execute_sync(&local_root, &usb_root, &ops, &mut index, &cancel, |done, total, file, is_copy| {
+        let (_, skipped) = execute_sync(&local_root, &usb_root, &ops, &mut index, &cancel, |done, total, file, is_copy| {
             if is_copy { copies_done += 1; }
             let pct = if total > 0 { done * 100 / total } else { 0 };
             let now = std::time::Instant::now();
@@ -311,6 +311,10 @@ async fn start_sync(
                 last_pct = pct;
             }
         })?;
+
+        if !skipped.is_empty() {
+            let _ = app.emit("sync-skipped", &skipped);
+        }
 
         save_index(&idx_path, &index)?;
         Ok::<SyncSummary, String>(summary)
