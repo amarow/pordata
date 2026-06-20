@@ -219,12 +219,16 @@ pub fn compare_states(
         let op = match (in_local, in_usb) {
             // --- File only on LOCAL side ----------------------------------
             (Some(_local_fs), None) => {
-                // Whether the file was previously synced or is brand-new, the
-                // local copy exists and the USB copy is missing → copy to USB.
-                // Local is always the authoritative source; a missing USB file
-                // means "needs to be (re-)copied", not "delete from local".
-                SyncOperation::CopyToUsb {
-                    rel_path: rel_path.clone(),
+                if in_index.is_some() {
+                    // Was synced before → deleted on USB since then.
+                    SyncOperation::DeleteOnLocal {
+                        rel_path: rel_path.clone(),
+                    }
+                } else {
+                    // Never synced → new local file.
+                    SyncOperation::CopyToUsb {
+                        rel_path: rel_path.clone(),
+                    }
                 }
             }
 
@@ -647,7 +651,7 @@ mod tests {
     }
 
     // -----------------------------------------------------------------------
-    // 4. File deleted on USB (was in index) → CopyToUsb (local is authoritative)
+    // 4. File deleted on USB (was in index) → DeleteOnLocal
     // -----------------------------------------------------------------------
     #[test]
     fn test_deleted_on_usb() {
@@ -659,10 +663,10 @@ mod tests {
 
         let summary = compare_states(&local, &usb, &idx);
 
-        assert_eq!(summary.copy_to_usb, 1);
+        assert_eq!(summary.delete, 1);
         assert!(matches!(
             &summary.operations[0],
-            SyncOperation::CopyToUsb { rel_path } if rel_path == "d.txt"
+            SyncOperation::DeleteOnLocal { rel_path } if rel_path == "d.txt"
         ));
     }
 
