@@ -73,6 +73,30 @@ pub struct SyncSummary {
     pub operations: Vec<SyncOperation>,
 }
 
+impl SyncSummary {
+    pub fn from_operations(operations: Vec<SyncOperation>) -> Self {
+        let mut s = Self {
+            copy_to_usb: 0,
+            copy_to_local: 0,
+            delete: 0,
+            conflicts: 0,
+            up_to_date: 0,
+            operations,
+        };
+        for op in &s.operations {
+            match op {
+                SyncOperation::CopyToUsb { .. }    => s.copy_to_usb += 1,
+                SyncOperation::CopyToLocal { .. }  => s.copy_to_local += 1,
+                SyncOperation::DeleteOnUsb { .. }
+                | SyncOperation::DeleteOnLocal { .. } => s.delete += 1,
+                SyncOperation::Conflict { .. }     => s.conflicts += 1,
+                SyncOperation::UpToDate { .. }     => s.up_to_date += 1,
+            }
+        }
+        s
+    }
+}
+
 /// Persisted snapshot of every file's state at the time of the last
 /// successful sync.  Stored as JSON on disk.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -301,29 +325,7 @@ pub fn compare_states(
         operations.push(op);
     }
 
-    // Tally up.
-    let mut summary = SyncSummary {
-        copy_to_usb: 0,
-        copy_to_local: 0,
-        delete: 0,
-        conflicts: 0,
-        up_to_date: 0,
-        operations,
-    };
-
-    for op in &summary.operations {
-        match op {
-            SyncOperation::CopyToUsb { .. } => summary.copy_to_usb += 1,
-            SyncOperation::CopyToLocal { .. } => summary.copy_to_local += 1,
-            SyncOperation::DeleteOnUsb { .. } | SyncOperation::DeleteOnLocal { .. } => {
-                summary.delete += 1
-            }
-            SyncOperation::Conflict { .. } => summary.conflicts += 1,
-            SyncOperation::UpToDate { .. } => summary.up_to_date += 1,
-        }
-    }
-
-    summary
+    SyncSummary::from_operations(operations)
 }
 
 /// Compare local and USB state purely by file timestamps — no sync index used.
@@ -360,23 +362,7 @@ pub fn compare_states_fresh(
         operations.push(op);
     }
 
-    let mut summary = SyncSummary {
-        copy_to_usb: 0,
-        copy_to_local: 0,
-        delete: 0,
-        conflicts: 0,
-        up_to_date: 0,
-        operations,
-    };
-    for op in &summary.operations {
-        match op {
-            SyncOperation::CopyToUsb { .. } => summary.copy_to_usb += 1,
-            SyncOperation::CopyToLocal { .. } => summary.copy_to_local += 1,
-            SyncOperation::UpToDate { .. } => summary.up_to_date += 1,
-            _ => {}
-        }
-    }
-    summary
+    SyncSummary::from_operations(operations)
 }
 
 /// Load a [`SyncIndex`] from a JSON file at `index_path`.

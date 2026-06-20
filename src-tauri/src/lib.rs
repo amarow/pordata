@@ -39,6 +39,76 @@ fn job_index_path(job_id: &str) -> PathBuf {
         .join(format!("index_{job_id}.json"))
 }
 
+/// Resolve the local root and USB root paths for a job.
+///
+/// Drops the config lock before acquiring `active_devices` to avoid deadlocks.
+fn resolve_job_roots(job_id: &str, state: &AppState) -> Result<(PathBuf, PathBuf), String> {
+    let (local_path, usb_subfolder, usb_uuid) = {
+        let config = state.config.lock().map_err(|e| e.to_string())?;
+        let job = config
+            .jobs
+            .iter()
+            .find(|j| j.id == job_id)
+            .ok_or_else(|| format!("Job '{job_id}' not found"))?;
+        (job.local_path.clone(), job.usb_subfolder.clone(), job.usb_uuid.clone())
+    };
+    let mount_path = {
+        let active = state.active_devices.lock().map_err(|e| e.to_string())?;
+        active
+            .get(&usb_uuid)
+            .map(|d| d.mount_path.clone())
+            .ok_or_else(|| format!("USB device '{usb_uuid}' is not connected"))?
+    };
+    Ok((
+        PathBuf::from(&local_path),
+        PathBuf::from(&mount_path).join(&usb_subfolder),
+    ))
+}
+
+/// Scan all matching jobs and produce [`PreScanResult`]s.
+/// If `fresh` is true, uses [`compare_states_fresh`]; otherwise the index-based [`compare_states`].
+fn collect_pre_scan_results(
+    job_id: Option<&str>,
+    state: &AppState,
+    fresh: bool,
+) -> Result<Vec<PreScanResult>, String> {
+    let jobs: Vec<SyncJob> = {
+        let config = state.config.lock().map_err(|e| e.to_string())?;
+        match job_id {
+            Some(id) => config.jobs.iter().filter(|j| j.id == id).cloned().collect(),
+            None => config.jobs.clone(),
+        }
+    };
+    let active = state.active_devices.lock().map_err(|e| e.to_string())?;
+    let mut results = Vec::new();
+    for job in &jobs {
+        let Some(device) = active.get(&job.usb_uuid) else {
+            continue;
+        };
+        let local_root = PathBuf::from(&job.local_path);
+        let usb_root = PathBuf::from(&device.mount_path).join(&job.usb_subfolder);
+        std::fs::create_dir_all(&usb_root).map_err(|e| e.to_string())?;
+        let local_state = scan_directory(&local_root)?;
+        let usb_state = scan_directory(&usb_root)?;
+        let summary = if fresh {
+            compare_states_fresh(&local_state, &usb_state)
+        } else {
+            let index = load_index(&job_index_path(&job.id))?;
+            compare_states(&local_state, &usb_state, &index)
+        };
+        results.push(PreScanResult {
+            job_id: job.id.clone(),
+            local_path: job.local_path.clone(),
+            usb_mount_path: device.mount_path.clone(),
+            usb_subfolder: job.usb_subfolder.clone(),
+            local_file_count: local_state.len(),
+            usb_file_count: usb_state.len(),
+            summary,
+        });
+    }
+    Ok(results)
+}
+
 // ---------------------------------------------------------------------------
 // DTOs for cross-command data
 // ---------------------------------------------------------------------------
@@ -185,44 +255,7 @@ fn run_pre_scan(
     job_id: Option<String>,
     state: State<AppState>,
 ) -> Result<Vec<PreScanResult>, String> {
-    // Collect job info and release the config lock before locking active_devices.
-    let jobs: Vec<SyncJob> = {
-        let config = state.config.lock().map_err(|e| e.to_string())?;
-        match &job_id {
-            Some(id) => config.jobs.iter().filter(|j| &j.id == id).cloned().collect(),
-            None => config.jobs.clone(),
-        }
-    };
-
-    let active = state.active_devices.lock().map_err(|e| e.to_string())?;
-
-    let mut results = Vec::new();
-    for job in &jobs {
-        let Some(device) = active.get(&job.usb_uuid) else {
-            continue; // USB not connected — skip silently
-        };
-
-        let local_root = PathBuf::from(&job.local_path);
-        let usb_root = PathBuf::from(&device.mount_path).join(&job.usb_subfolder);
-        std::fs::create_dir_all(&usb_root).map_err(|e| e.to_string())?;
-
-        let local_state = scan_directory(&local_root)?;
-        let usb_state = scan_directory(&usb_root)?;
-        let index = load_index(&job_index_path(&job.id))?;
-        let summary = compare_states(&local_state, &usb_state, &index);
-
-        results.push(PreScanResult {
-            job_id: job.id.clone(),
-            local_path: job.local_path.clone(),
-            usb_mount_path: device.mount_path.clone(),
-            usb_subfolder: job.usb_subfolder.clone(),
-            local_file_count: local_state.len(),
-            usb_file_count: usb_state.len(),
-            summary,
-        });
-    }
-
-    Ok(results)
+    collect_pre_scan_results(job_id.as_deref(), &state, false)
 }
 
 #[tauri::command]
@@ -230,42 +263,7 @@ fn run_pre_scan_fresh(
     job_id: Option<String>,
     state: State<AppState>,
 ) -> Result<Vec<PreScanResult>, String> {
-    let jobs: Vec<SyncJob> = {
-        let config = state.config.lock().map_err(|e| e.to_string())?;
-        match &job_id {
-            Some(id) => config.jobs.iter().filter(|j| &j.id == id).cloned().collect(),
-            None => config.jobs.clone(),
-        }
-    };
-
-    let active = state.active_devices.lock().map_err(|e| e.to_string())?;
-
-    let mut results = Vec::new();
-    for job in &jobs {
-        let Some(device) = active.get(&job.usb_uuid) else {
-            continue;
-        };
-
-        let local_root = PathBuf::from(&job.local_path);
-        let usb_root = PathBuf::from(&device.mount_path).join(&job.usb_subfolder);
-        std::fs::create_dir_all(&usb_root).map_err(|e| e.to_string())?;
-
-        let local_state = scan_directory(&local_root)?;
-        let usb_state = scan_directory(&usb_root)?;
-        let summary = compare_states_fresh(&local_state, &usb_state);
-
-        results.push(PreScanResult {
-            job_id: job.id.clone(),
-            local_path: job.local_path.clone(),
-            usb_mount_path: device.mount_path.clone(),
-            usb_subfolder: job.usb_subfolder.clone(),
-            local_file_count: local_state.len(),
-            usb_file_count: usb_state.len(),
-            summary,
-        });
-    }
-
-    Ok(results)
+    collect_pre_scan_results(job_id.as_deref(), &state, true)
 }
 
 #[derive(Serialize, Clone)]
@@ -286,25 +284,7 @@ async fn start_sync(
     app: tauri::AppHandle,
     state: State<'_, AppState>,
 ) -> Result<SyncSummary, String> {
-    // Extract all data we need before entering the blocking thread.
-    let (local_path, usb_subfolder, usb_uuid) = {
-        let config = state.config.lock().map_err(|e| e.to_string())?;
-        let job = config
-            .jobs
-            .iter()
-            .find(|j| j.id == job_id)
-            .ok_or_else(|| format!("Job '{job_id}' not found"))?;
-        (job.local_path.clone(), job.usb_subfolder.clone(), job.usb_uuid.clone())
-    };
-
-    let mount_path = {
-        let active = state.active_devices.lock().map_err(|e| e.to_string())?;
-        active
-            .get(&usb_uuid)
-            .map(|d| d.mount_path.clone())
-            .ok_or_else(|| format!("USB device '{usb_uuid}' is not connected"))?
-    };
-
+    let (local_root, usb_root) = resolve_job_roots(&job_id, &state)?;
     let cancel = Arc::clone(&state.cancel_sync);
     cancel.store(false, Ordering::Relaxed);
     let idx_path = job_index_path(&job_id);
@@ -312,8 +292,6 @@ async fn start_sync(
     // Run all blocking file I/O on a dedicated thread so the GTK/WebKit
     // event loop stays responsive and progress events can be delivered.
     tauri::async_runtime::spawn_blocking(move || {
-        let local_root = PathBuf::from(&local_path);
-        let usb_root = PathBuf::from(&mount_path).join(&usb_subfolder);
         std::fs::create_dir_all(&usb_root).map_err(|e| e.to_string())?;
 
         let local_state = scan_directory(&local_root)?;
@@ -382,26 +360,7 @@ fn resolve_conflicts(
     resolutions: Vec<ConflictResolutionInput>,
     state: State<AppState>,
 ) -> Result<(), String> {
-    let (local_path, usb_subfolder, usb_uuid) = {
-        let config = state.config.lock().map_err(|e| e.to_string())?;
-        let job = config
-            .jobs
-            .iter()
-            .find(|j| j.id == job_id)
-            .ok_or_else(|| format!("Job '{job_id}' not found"))?;
-        (job.local_path.clone(), job.usb_subfolder.clone(), job.usb_uuid.clone())
-    };
-
-    let mount_path = {
-        let active = state.active_devices.lock().map_err(|e| e.to_string())?;
-        active
-            .get(&usb_uuid)
-            .map(|d| d.mount_path.clone())
-            .ok_or_else(|| format!("USB device '{usb_uuid}' is not connected"))?
-    };
-
-    let local_root = PathBuf::from(&local_path);
-    let usb_root = PathBuf::from(&mount_path).join(&usb_subfolder);
+    let (local_root, usb_root) = resolve_job_roots(&job_id, &state)?;
     let idx_path = job_index_path(&job_id);
     let mut index = load_index(&idx_path)?;
 
