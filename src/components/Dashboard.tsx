@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import appIcon from "../assets/icon.png";
 import type { SyncJob, DeviceInfo } from "../types";
-import { openFolder } from "../utils";
+import { openFolder, usbPath } from "../utils";
 
 interface Props {
   jobs: SyncJob[];
@@ -97,13 +97,8 @@ export default function Dashboard({
                     <span className="label">USB</span>
                     <span
                       className={`path path-link ${connected ? "" : "path-dim"}`}
-                      title={device ? `${device.mount_path}/${job.usb_subfolder}` : job.usb_subfolder}
-                      onClick={() => {
-                        const full = device
-                          ? `${device.mount_path}/${job.usb_subfolder}`
-                          : job.usb_subfolder;
-                        openFolder(full);
-                      }}
+                      title={device ? usbPath(device.mount_path, job.usb_subfolder) : job.usb_subfolder}
+                      onClick={() => openFolder(device ? usbPath(device.mount_path, job.usb_subfolder) : job.usb_subfolder)}
                     >
                       {device ? `${device.mount_path}/` : ""}
                       {job.usb_subfolder}

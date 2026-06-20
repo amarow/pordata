@@ -1,6 +1,6 @@
 import { useState } from "react";
 import type { PreScanResult, SyncOperation } from "../types";
-import { openFolder } from "../utils";
+import { openFolder, usbPath } from "../utils";
 
 interface SyncProgress {
   done: number;
@@ -272,7 +272,7 @@ export default function SyncPreview({ results, activeIndex, onTabChange, onSync,
         {/* Right info card */}
         <div className="info-card">
           <div className="info-card-label label-usb">USB</div>
-          <span className="info-card-path path-link" onClick={() => openFolder(`${active.usb_mount_path}/${active.usb_subfolder}`)} title="Im Dateimanager öffnen">
+          <span className="info-card-path path-link" onClick={() => openFolder(usbPath(active.usb_mount_path, active.usb_subfolder))} title="Im Dateimanager öffnen">
             {active.usb_mount_path}/{active.usb_subfolder}
           </span>
           <div className="info-card-stat">

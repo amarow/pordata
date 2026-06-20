@@ -1,14 +1,16 @@
 import { useState } from "react";
-import { invoke } from "@tauri-apps/api/core";
 import type { DeviceInfo } from "../types";
 
 interface Props {
   activeDevices: DeviceInfo[];
   onSave: (localPath: string, usbSubfolder: string, usbUuid: string) => void;
   onCancel: () => void;
+  onPickLocalFolder: () => Promise<string | null>;
+  onPickUsbFolder: (startPath: string) => Promise<string | null>;
+  onInitUsbDevice: (path: string) => Promise<{ mount_path: string; uuid: string }>;
 }
 
-export default function NewJobDialog({ activeDevices, onSave, onCancel }: Props) {
+export default function NewJobDialog({ activeDevices, onSave, onCancel, onPickLocalFolder, onPickUsbFolder, onInitUsbDevice }: Props) {
   const [localPath, setLocalPath] = useState("");
   const [usbFullPath, setUsbFullPath] = useState("");
   const [detectedUuid, setDetectedUuid] = useState("");
@@ -22,7 +24,7 @@ export default function NewJobDialog({ activeDevices, onSave, onCancel }: Props)
   }
 
   async function pickFolder() {
-    const result = await invoke<string | null>("select_directory");
+    const result = await onPickLocalFolder();
     if (result) setLocalPath(result);
   }
 
@@ -31,7 +33,7 @@ export default function NewJobDialog({ activeDevices, onSave, onCancel }: Props)
       activeDevices.length > 0
         ? activeDevices[0].mount_path.split("/").slice(0, -1).join("/") || "/media"
         : "/media";
-    const result = await invoke<string | null>("select_directory_from", { startPath });
+    const result = await onPickUsbFolder(startPath);
     if (!result) return;
 
     setUsbFullPath(result);
@@ -44,11 +46,8 @@ export default function NewJobDialog({ activeDevices, onSave, onCancel }: Props)
       return;
     }
 
-    // Stick not yet known → initialize it (creates .pordata-uuid if missing)
     try {
-      const info = await invoke<{ mount_path: string; uuid: string }>(
-        "init_usb_device", { path: result }
-      );
+      const info = await onInitUsbDevice(result);
       setDetectedUuid(info.uuid);
       setDetectedMountPath(info.mount_path);
     } catch (e) {
