@@ -192,9 +192,7 @@ export default function SyncPreview({ results, activeIndex, onTabChange, onSync,
                   }}
                 />
               </div>
-              {syncProgress.currentFile && (
-                <div className="sync-running-file">{syncProgress.currentFile}</div>
-              )}
+              <div className="sync-running-file">{syncProgress.currentFile}</div>
               <button className="btn-secondary" onClick={onCancelSync}>
                 Abbrechen
               </button>
