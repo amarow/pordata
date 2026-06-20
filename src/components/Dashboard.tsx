@@ -1,11 +1,7 @@
 import { useState, useEffect } from "react";
-import { invoke } from "@tauri-apps/api/core";
 import appIcon from "../assets/icon.png";
 import type { SyncJob, DeviceInfo } from "../types";
-
-function openFolder(path: string) {
-  invoke("open_in_file_manager", { path }).catch(() => {});
-}
+import { openFolder } from "../utils";
 
 interface Props {
   jobs: SyncJob[];

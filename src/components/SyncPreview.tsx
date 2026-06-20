@@ -1,4 +1,6 @@
-import type { PreScanResult } from "../types";
+import { useState } from "react";
+import type { PreScanResult, SyncOperation } from "../types";
+import { openFolder } from "../utils";
 
 interface SyncProgress {
   done: number;
@@ -27,9 +29,92 @@ function FileIcon() {
   );
 }
 
+function ArrowRight() {
+  return (
+    <svg className="dir-arrow-icon" viewBox="0 0 56 28" fill="currentColor" aria-hidden>
+      <path d="M0 10 H34 V3 L56 14 L34 25 V18 H0 Z" />
+    </svg>
+  );
+}
+
+function ArrowLeft() {
+  return (
+    <svg className="dir-arrow-icon" viewBox="0 0 56 28" fill="currentColor" aria-hidden>
+      <path d="M56 10 H22 V3 L0 14 L22 25 V18 H56 Z" />
+    </svg>
+  );
+}
+
+function LupeIcon() {
+  return (
+    <svg width="15" height="15" viewBox="0 0 20 20" fill="currentColor" aria-hidden>
+      <circle cx="8.5" cy="8.5" r="5.5" fill="none" stroke="currentColor" strokeWidth="2.2" />
+      <line x1="13" y1="13" x2="18" y2="18" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+interface FileListModalProps {
+  direction: "to_usb" | "to_local";
+  operations: SyncOperation[];
+  onClose: () => void;
+}
+
+function FileListModal({ direction, operations, onClose }: FileListModalProps) {
+  const copies = operations
+    .filter((op) => direction === "to_usb" ? "CopyToUsb" in op : "CopyToLocal" in op)
+    .map((op) => (op as any)[direction === "to_usb" ? "CopyToUsb" : "CopyToLocal"].rel_path as string);
+
+  const deletes = operations
+    .filter((op) => direction === "to_usb" ? "DeleteOnUsb" in op : "DeleteOnLocal" in op)
+    .map((op) => (op as any)[direction === "to_usb" ? "DeleteOnUsb" : "DeleteOnLocal"].rel_path as string);
+
+  const label = direction === "to_usb" ? "Lokal → USB" : "Lokal ← USB";
+  const colorCls = direction === "to_usb" ? "filelist-usb" : "filelist-local";
+
+  return (
+    <div className="modal-overlay" onClick={onClose}>
+      <div className={`filelist-modal ${colorCls}`} onClick={(e) => e.stopPropagation()}>
+        <div className="filelist-header">
+          <span className="filelist-title">{label}</span>
+          <button className="btn-icon filelist-close" onClick={onClose}>✕</button>
+        </div>
+        <div className="filelist-body">
+          {copies.length > 0 && (
+            <section>
+              <div className="filelist-section-label">Kopieren ({copies.length})</div>
+              {copies.map((p) => (
+                <div key={p} className="filelist-row filelist-row-copy">
+                  <span className="filelist-row-icon">+</span>
+                  <span className="filelist-row-path">{p}</span>
+                </div>
+              ))}
+            </section>
+          )}
+          {deletes.length > 0 && (
+            <section>
+              <div className="filelist-section-label">Löschen ({deletes.length})</div>
+              {deletes.map((p) => (
+                <div key={p} className="filelist-row filelist-row-delete">
+                  <span className="filelist-row-icon">−</span>
+                  <span className="filelist-row-path">{p}</span>
+                </div>
+              ))}
+            </section>
+          )}
+          {copies.length === 0 && deletes.length === 0 && (
+            <div className="filelist-empty">Keine Änderungen</div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function SyncPreview({ results, activeIndex, onTabChange, onSync, onConflicts, onBack, syncProgress, onCancelSync }: Props) {
   const active = results[activeIndex];
   const s = active.summary;
+  const [fileListDir, setFileListDir] = useState<"to_usb" | "to_local" | null>(null);
 
   const deleteOnUsb = s.operations.filter((op) => "DeleteOnUsb" in op).length;
   const deleteOnLocal = s.operations.filter((op) => "DeleteOnLocal" in op).length;
@@ -39,6 +124,14 @@ export default function SyncPreview({ results, activeIndex, onTabChange, onSync,
 
   return (
     <div className="view sync-preview">
+      {fileListDir && (
+        <FileListModal
+          direction={fileListDir}
+          operations={s.operations}
+          onClose={() => setFileListDir(null)}
+        />
+      )}
+
       <div className="preview-header">
         <button className="btn-icon" onClick={onBack}>
           ← Zurück
@@ -64,7 +157,7 @@ export default function SyncPreview({ results, activeIndex, onTabChange, onSync,
         {/* Left info card */}
         <div className="info-card">
           <div className="info-card-label label-local">Lokal</div>
-          <div className="info-card-path">{active.local_path}</div>
+          <span className="info-card-path path-link" onClick={() => openFolder(active.local_path)} title="Im Dateimanager öffnen">{active.local_path}</span>
           <div className="info-card-stat">
             <span className="stat-num stat-blue">
               {syncProgress?.direction === "to_local"
@@ -108,37 +201,57 @@ export default function SyncPreview({ results, activeIndex, onTabChange, onSync,
             </div>
           ) : (
             <>
-              <button
-                className="dir-btn dir-btn-to-usb"
-                onClick={() => onSync(active.job_id, "to_usb")}
-                disabled={!hasToUsb}
-              >
-                <span className="dir-btn-top">
-                  <FileIcon />
-                  <span className="dir-btn-count">{s.copy_to_usb}</span>
-                  <span className="dir-btn-unit">Datei{s.copy_to_usb !== 1 ? "en" : ""}</span>
-                </span>
-                <span className="dir-btn-arrow">Lokal → USB</span>
-                {deleteOnUsb > 0 && (
-                  <span className="dir-btn-delete">{deleteOnUsb} löschen</span>
-                )}
-              </button>
+              <div className="dir-btn-wrap">
+                <button
+                  className="dir-btn dir-btn-to-usb"
+                  onClick={() => onSync(active.job_id, "to_usb")}
+                  disabled={!hasToUsb}
+                >
+                  <span className="dir-btn-top">
+                    <FileIcon />
+                    <span className="dir-btn-count">{s.copy_to_usb}</span>
+                    <span className="dir-btn-unit">Datei{s.copy_to_usb !== 1 ? "en" : ""}</span>
+                  </span>
+                  <ArrowRight />
+                  <span className="dir-btn-label">Lokal → USB</span>
+                  {deleteOnUsb > 0 && (
+                    <span className="dir-btn-delete">{deleteOnUsb} löschen</span>
+                  )}
+                </button>
+                <button
+                  className="dir-btn-lupe"
+                  title="Dateien anzeigen"
+                  onClick={() => setFileListDir("to_usb")}
+                >
+                  <LupeIcon />
+                </button>
+              </div>
 
-              <button
-                className="dir-btn dir-btn-to-local"
-                onClick={() => onSync(active.job_id, "to_local")}
-                disabled={!hasToLocal}
-              >
-                <span className="dir-btn-top">
-                  <FileIcon />
-                  <span className="dir-btn-count">{s.copy_to_local}</span>
-                  <span className="dir-btn-unit">Datei{s.copy_to_local !== 1 ? "en" : ""}</span>
-                </span>
-                <span className="dir-btn-arrow">Lokal ← USB</span>
-                {deleteOnLocal > 0 && (
-                  <span className="dir-btn-delete">{deleteOnLocal} löschen</span>
-                )}
-              </button>
+              <div className="dir-btn-wrap">
+                <button
+                  className="dir-btn dir-btn-to-local"
+                  onClick={() => onSync(active.job_id, "to_local")}
+                  disabled={!hasToLocal}
+                >
+                  <span className="dir-btn-top">
+                    <FileIcon />
+                    <span className="dir-btn-count">{s.copy_to_local}</span>
+                    <span className="dir-btn-unit">Datei{s.copy_to_local !== 1 ? "en" : ""}</span>
+                  </span>
+                  <ArrowLeft />
+                  <span className="dir-btn-label">Lokal ← USB</span>
+                  {deleteOnLocal > 0 && (
+                    <span className="dir-btn-delete">{deleteOnLocal} löschen</span>
+                  )}
+                </button>
+                <button
+                  className="dir-btn-lupe"
+                  title="Dateien anzeigen"
+                  onClick={() => setFileListDir("to_local")}
+                >
+                  <LupeIcon />
+                </button>
+              </div>
 
               {s.conflicts > 0 && (
                 <button
@@ -159,9 +272,9 @@ export default function SyncPreview({ results, activeIndex, onTabChange, onSync,
         {/* Right info card */}
         <div className="info-card">
           <div className="info-card-label label-usb">USB</div>
-          <div className="info-card-path">
+          <span className="info-card-path path-link" onClick={() => openFolder(`${active.usb_mount_path}/${active.usb_subfolder}`)} title="Im Dateimanager öffnen">
             {active.usb_mount_path}/{active.usb_subfolder}
-          </div>
+          </span>
           <div className="info-card-stat">
             <span className="stat-num stat-green">
               {syncProgress?.direction === "to_usb"
