@@ -29,6 +29,9 @@ export function useAppState() {
   const syncProgressRef = useRef(syncProgress);
   useEffect(() => { syncProgressRef.current = syncProgress; }, [syncProgress]);
 
+  const scanResultsRef = useRef(scanResults);
+  useEffect(() => { scanResultsRef.current = scanResults; }, [scanResults]);
+
   const [error, setError] = useState<string | null>(null);
   const [skippedFiles, setSkippedFiles] = useState<string[]>([]);
   const [validLocalPaths, setValidLocalPaths] = useState<Set<string>>(new Set());
@@ -74,8 +77,10 @@ export function useAppState() {
     const id = setInterval(async () => {
       if (syncProgressRef.current !== null) return;
       try {
+        const currentIds = new Set(scanResultsRef.current.map((r) => r.job_id));
         const refreshed = await invoke<PreScanResult[]>("run_pre_scan", { jobId: null });
-        if (refreshed.length > 0) setScanResults(refreshed);
+        const relevant = refreshed.filter((r) => currentIds.has(r.job_id));
+        if (relevant.length > 0) setScanResults(relevant);
       } catch {
         // Gerät zwischenzeitlich entfernt o.ä. — still ignorieren
       }
