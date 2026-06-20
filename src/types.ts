@@ -61,3 +61,10 @@ export interface ConflictResolutionInput {
 }
 
 export type View = 'dashboard' | 'new-job' | 'sync-preview' | 'conflict';
+
+export interface SetupStickResult {
+  mountPath: string;
+  uuid: string;
+  appimageCopied: boolean;
+  appimageName: string | null;
+}

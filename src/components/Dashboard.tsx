@@ -9,6 +9,7 @@ interface Props {
   onNewJob: () => void;
   onStartSync: (jobId?: string) => void;
   onDeleteJob: (jobId: string) => void;
+  onSetupSticks: () => void;
   theme: "dark" | "light";
   onToggleTheme: () => void;
   validLocalPaths: Set<string>;
@@ -20,6 +21,7 @@ export default function Dashboard({
   onNewJob,
   onStartSync,
   onDeleteJob,
+  onSetupSticks,
   theme,
   onToggleTheme,
   validLocalPaths,
@@ -44,13 +46,31 @@ export default function Dashboard({
           <img src={appIcon} alt="" className="app-icon" />
           <h1>Pordata Sync</h1>
         </div>
-        <button
-          className="btn-theme-toggle"
-          title={theme === "dark" ? "Helles Design" : "Dunkles Design"}
-          onClick={onToggleTheme}
-        >
-          {theme === "dark" ? "☀" : "☾"}
-        </button>
+        <div className="header-actions">
+          <button
+            className="btn-theme-toggle"
+            title="USB-Sticks einrichten (pordata-Ordner, AppImage)"
+            onClick={onSetupSticks}
+            disabled={activeDevices.length === 0}
+          >
+            <svg width="18" height="18" viewBox="0 0 18 18" fill="currentColor" aria-hidden>
+              <rect x="7" y="12" width="4" height="4" rx="1"/>
+              <line x1="9" y1="12" x2="9" y2="7" stroke="currentColor" strokeWidth="1.5"/>
+              <line x1="4" y1="7" x2="14" y2="7" stroke="currentColor" strokeWidth="1.5"/>
+              <line x1="4" y1="7" x2="4" y2="4" stroke="currentColor" strokeWidth="1.5"/>
+              <circle cx="4" cy="3" r="1.5"/>
+              <line x1="14" y1="7" x2="14" y2="4" stroke="currentColor" strokeWidth="1.5"/>
+              <rect x="12.5" y="2" width="3" height="3" rx="0.3"/>
+            </svg>
+          </button>
+          <button
+            className="btn-theme-toggle"
+            title={theme === "dark" ? "Helles Design" : "Dunkles Design"}
+            onClick={onToggleTheme}
+          >
+            {theme === "dark" ? "☀" : "☾"}
+          </button>
+        </div>
       </header>
 
       <div className="jobs-grid">

@@ -7,6 +7,7 @@ import type {
   PreScanResult,
   ConflictInfo,
   ConflictResolutionInput,
+  SetupStickResult,
   View,
 } from "../types";
 import { usbPath } from "../utils";
@@ -28,6 +29,7 @@ export function useAppState() {
   } | null>(null);
 
   const [freshScanJobIds, setFreshScanJobIds] = useState<Set<string>>(new Set());
+  const [stickSetupResults, setStickSetupResults] = useState<SetupStickResult[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [skippedFiles, setSkippedFiles] = useState<string[]>([]);
   const [validLocalPaths, setValidLocalPaths] = useState<Set<string>>(new Set());
@@ -132,6 +134,13 @@ export function useAppState() {
   async function handleCreateJob(localPath: string, usbSubfolder: string, usbUuid: string) {
     try {
       await invoke("create_sync_job", { localPath, usbSubfolder, usbUuid });
+      const device = activeDevices.find((d) => d.uuid === usbUuid);
+      await Promise.all([
+        invoke("create_directory", { path: localPath }),
+        device
+          ? invoke("create_directory", { path: usbPath(device.mount_path, usbSubfolder) })
+          : Promise.resolve(),
+      ]);
       await loadJobs();
       setView("dashboard");
     } catch (e) {
@@ -270,6 +279,28 @@ export function useAppState() {
     }
   }
 
+  async function handleSetupSticks() {
+    setError(null);
+    const results: SetupStickResult[] = [];
+    for (const device of activeDevices) {
+      try {
+        const r = await invoke<{ uuid: string; appimageCopied: boolean; appimageName: string | null }>(
+          "setup_usb_stick",
+          { mountPath: device.mount_path }
+        );
+        results.push({ mountPath: device.mount_path, ...r });
+      } catch (e) {
+        setError(String(e));
+        return;
+      }
+    }
+    setStickSetupResults(results);
+  }
+
+  async function suggestUsbSubfolder(localPath: string): Promise<string> {
+    return invoke<string>("suggest_usb_subfolder", { localPath });
+  }
+
   async function pickLocalFolder(): Promise<string | null> {
     return invoke<string | null>("select_directory");
   }
@@ -302,10 +333,13 @@ export function useAppState() {
     handleStartPreScan,
     handleConfirmCreatePaths,
     handleOpenManual,
+    handleSetupSticks,
+    stickSetupResults, setStickSetupResults,
     handleSync,
     handleCancelSync,
     handleResolveConflicts,
     handleFreshScan,
+    suggestUsbSubfolder,
     pickLocalFolder,
     pickUsbFolder,
     initUsbDevice,

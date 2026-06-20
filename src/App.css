@@ -322,7 +322,35 @@ select option { background: var(--bg); color: var(--text); }
   color: var(--text-strong);
   letter-spacing: -0.02em;
 }
+.header-actions { display: flex; gap: 8px; align-items: center; }
 .header-devices { display: flex; gap: 8px; flex-wrap: wrap; }
+
+
+.setup-stick-result {
+  margin-bottom: 12px;
+}
+.setup-stick-mount {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--text);
+  margin-bottom: 6px;
+}
+.setup-stick-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 0.82rem;
+  color: var(--text-muted);
+}
+.setup-stick-list code {
+  font-size: 0.78rem;
+  color: var(--text);
+}
+.setup-ok   { color: var(--green); }
+.setup-skip { color: var(--orange, #e07b30); }
 
 .btn-theme-toggle {
   background: var(--surface);
@@ -556,10 +584,10 @@ select option { background: var(--bg); color: var(--text); }
 .new-job-view { gap: 20px; }
 
 .new-job-form {
-  max-width: 540px;
   display: flex;
   flex-direction: column;
   gap: 4px;
+  width: 100%;
 }
 .new-job-form .label-local {
   color: var(--blue);
@@ -625,9 +653,33 @@ select option { background: var(--bg); color: var(--text); }
 }
 .input-row {
   display: flex;
-  gap: 8px;
+  gap: 6px;
+  align-items: center;
 }
-.input-row input { flex: 1; }
+.input-row input { flex: 1; min-width: 0; }
+.btn-icon-sm {
+  flex-shrink: 0;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--text-muted);
+  width: 30px;
+  height: 30px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s, color 0.15s;
+}
+.btn-icon-sm:hover:not(:disabled) {
+  background: var(--surface-hover);
+  border-color: var(--border-active);
+  color: var(--text);
+}
+.btn-icon-sm:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
 .warning-text {
   color: var(--orange);
   font-size: 0.85rem;

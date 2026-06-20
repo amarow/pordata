@@ -26,10 +26,13 @@ export default function App() {
     handleStartPreScan,
     handleConfirmCreatePaths,
     handleOpenManual,
+    handleSetupSticks,
+    stickSetupResults, setStickSetupResults,
     handleSync,
     handleCancelSync,
     handleResolveConflicts,
     handleFreshScan,
+    suggestUsbSubfolder,
     pickLocalFolder,
     pickUsbFolder,
     initUsbDevice,
@@ -90,6 +93,30 @@ export default function App() {
         </div>
       )}
 
+      {stickSetupResults && (
+        <div className="modal-overlay">
+          <div className="dialog-card">
+            <h2>USB-Sticks eingerichtet</h2>
+            {stickSetupResults.map((r) => (
+              <div key={r.mountPath} className="setup-stick-result">
+                <div className="setup-stick-mount">{r.mountPath}</div>
+                <ul className="setup-stick-list">
+                  <li>UUID: <code>{r.uuid}</code></li>
+                  <li>pordata/.pordata-uuid, pordata/Windows/ und pordata/Linux/ angelegt</li>
+                  {r.appimageCopied
+                    ? <li className="setup-ok">pordata/Linux/{r.appimageName} kopiert</li>
+                    : <li className="setup-skip">AppImage nicht gefunden – bitte manuell in pordata/Linux/ ablegen</li>
+                  }
+                </ul>
+              </div>
+            ))}
+            <div className="dialog-actions">
+              <button className="btn-primary" onClick={() => setStickSetupResults(null)}>OK</button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {view === "dashboard" && (
         <Dashboard
           jobs={jobs}
@@ -97,6 +124,7 @@ export default function App() {
           onNewJob={() => setView("new-job")}
           onStartSync={handleStartPreScan}
           onDeleteJob={handleDeleteJob}
+          onSetupSticks={handleSetupSticks}
           theme={theme}
           onToggleTheme={toggleTheme}
           validLocalPaths={validLocalPaths}
@@ -108,6 +136,7 @@ export default function App() {
           activeDevices={activeDevices}
           onSave={handleCreateJob}
           onCancel={() => setView("dashboard")}
+          onSuggestUsbSubfolder={suggestUsbSubfolder}
           onPickLocalFolder={pickLocalFolder}
           onPickUsbFolder={pickUsbFolder}
           onInitUsbDevice={initUsbDevice}

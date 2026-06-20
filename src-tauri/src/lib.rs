@@ -170,13 +170,35 @@ fn create_directory(path: String) -> Result<(), String> {
     std::fs::create_dir_all(&path).map_err(|e| e.to_string())
 }
 
+/// Reads `pordata/.pordata-uuid` from `mount`; creates directory and file if absent or empty.
+fn read_or_create_uuid(mount: &PathBuf) -> Result<String, String> {
+    let pordata_dir = mount.join("pordata");
+    std::fs::create_dir_all(&pordata_dir).map_err(|e| e.to_string())?;
+    let uuid_file = pordata_dir.join(".pordata-uuid");
+    if uuid_file.exists() {
+        let s = std::fs::read_to_string(&uuid_file).map_err(|e| e.to_string())?;
+        let t = s.trim().to_owned();
+        if t.is_empty() {
+            let id = generate_device_id();
+            std::fs::write(&uuid_file, &id).map_err(|e| e.to_string())?;
+            Ok(id)
+        } else {
+            Ok(t)
+        }
+    } else {
+        let id = generate_device_id();
+        std::fs::write(&uuid_file, &id).map_err(|e| e.to_string())?;
+        Ok(id)
+    }
+}
+
 /// Finds the removable disk whose mount point is a prefix of `path`,
 /// reads or creates `.pordata-uuid` there, and returns {mount_path, uuid}.
 #[tauri::command]
 fn init_usb_device(path: String) -> Result<serde_json::Value, String> {
     use sysinfo::Disks;
     let disks = Disks::new_with_refreshed_list();
-    let mut best_mount: Option<std::path::PathBuf> = None;
+    let mut best_mount: Option<PathBuf> = None;
     for disk in disks.list() {
         if !disk.is_removable() {
             continue;
@@ -195,27 +217,55 @@ fn init_usb_device(path: String) -> Result<serde_json::Value, String> {
     let mount = best_mount
         .ok_or_else(|| "Kein entfernbares Laufwerk für diesen Pfad gefunden.".to_string())?;
 
-    let uuid_file = mount.join(".pordata-uuid");
-    let uuid = if uuid_file.exists() {
-        let s = std::fs::read_to_string(&uuid_file).map_err(|e| e.to_string())?;
-        let t = s.trim().to_owned();
-        if t.is_empty() {
-            let id = generate_device_id();
-            std::fs::write(&uuid_file, &id).map_err(|e| e.to_string())?;
-            id
-        } else {
-            t
-        }
-    } else {
-        let id = generate_device_id();
-        std::fs::write(&uuid_file, &id).map_err(|e| e.to_string())?;
-        id
-    };
-
+    let uuid = read_or_create_uuid(&mount)?;
     Ok(serde_json::json!({
         "mount_path": mount.to_string_lossy(),
         "uuid": uuid,
     }))
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct SetupStickResult {
+    uuid: String,
+    appimage_copied: bool,
+    appimage_name: Option<String>,
+}
+
+/// Initialises a USB stick for use with Pordata Sync:
+/// - writes `.pordata-uuid` (creates one if absent)
+/// - creates `Windows/` and `Linux/` subdirectories
+/// - copies the running AppImage into `Linux/` (only when $APPIMAGE env var is set)
+#[tauri::command]
+fn setup_usb_stick(mount_path: String) -> Result<SetupStickResult, String> {
+    let mount = PathBuf::from(&mount_path);
+
+    let uuid = read_or_create_uuid(&mount)?;
+
+    let pordata_dir = mount.join("pordata");
+    std::fs::create_dir_all(pordata_dir.join("Windows")).map_err(|e| e.to_string())?;
+    std::fs::create_dir_all(pordata_dir.join("Linux")).map_err(|e| e.to_string())?;
+
+    let (appimage_copied, appimage_name) = match std::env::var("APPIMAGE") {
+        Ok(src_path) => {
+            let src = PathBuf::from(&src_path);
+            if src.exists() {
+                let name = src
+                    .file_name()
+                    .map(|n| n.to_string_lossy().to_string())
+                    .unwrap_or_else(|| "pordata-sync.AppImage".to_string());
+                let dst = pordata_dir.join("Linux").join(&name);
+                std::fs::copy(&src, &dst)
+                    .map_err(|e| format!("AppImage kopieren fehlgeschlagen: {e}"))?;
+                (true, Some(name))
+            } else {
+                (false, None)
+            }
+        }
+        Err(_) => (false, None),
+    };
+
+    Ok(SetupStickResult { uuid, appimage_copied, appimage_name })
 }
 
 fn generate_device_id() -> String {
@@ -224,6 +274,15 @@ fn generate_device_id() -> String {
         .duration_since(UNIX_EPOCH)
         .unwrap_or_default();
     format!("pd-{:x}{:08x}", d.as_secs(), d.subsec_nanos())
+}
+
+/// Derive a suggested USB subfolder from a local path.
+/// Keeps the full path and prepends `pordata/`.
+/// E.g. `/home/ama/Dokumente/Segeln` → `pordata/home/ama/Dokumente/Segeln`.
+#[tauri::command]
+fn suggest_usb_subfolder(local_path: String) -> String {
+    let stripped = local_path.trim_start_matches('/');
+    format!("pordata/{stripped}")
 }
 
 #[tauri::command]
@@ -412,6 +471,8 @@ pub fn run() {
             check_path_exists,
             create_directory,
             init_usb_device,
+            setup_usb_stick,
+            suggest_usb_subfolder,
             open_in_file_manager,
             select_directory,
             select_directory_from,

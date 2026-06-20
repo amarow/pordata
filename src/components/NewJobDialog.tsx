@@ -5,12 +5,13 @@ interface Props {
   activeDevices: DeviceInfo[];
   onSave: (localPath: string, usbSubfolder: string, usbUuid: string) => void;
   onCancel: () => void;
+  onSuggestUsbSubfolder: (localPath: string) => Promise<string>;
   onPickLocalFolder: () => Promise<string | null>;
   onPickUsbFolder: (startPath: string) => Promise<string | null>;
   onInitUsbDevice: (path: string) => Promise<{ mount_path: string; uuid: string }>;
 }
 
-export default function NewJobDialog({ activeDevices, onSave, onCancel, onPickLocalFolder, onPickUsbFolder, onInitUsbDevice }: Props) {
+export default function NewJobDialog({ activeDevices, onSave, onCancel, onSuggestUsbSubfolder, onPickLocalFolder, onPickUsbFolder, onInitUsbDevice }: Props) {
   const [localPath, setLocalPath] = useState("");
   const [usbFullPath, setUsbFullPath] = useState("");
   const [detectedUuid, setDetectedUuid] = useState("");
@@ -26,6 +27,19 @@ export default function NewJobDialog({ activeDevices, onSave, onCancel, onPickLo
   async function pickFolder() {
     const result = await onPickLocalFolder();
     if (result) setLocalPath(result);
+  }
+
+  async function applySuggestion() {
+    if (!localPath) return;
+    const suggestion = await onSuggestUsbSubfolder(localPath);
+    const device = activeDevices[0];
+    if (device) {
+      const fullPath = `${device.mount_path}/${suggestion}`;
+      setUsbFullPath(fullPath);
+      setDetectedUuid(device.uuid);
+      setDetectedMountPath(device.mount_path);
+      setUsbError("");
+    }
   }
 
   async function pickUsbFolder() {
@@ -100,8 +114,11 @@ export default function NewJobDialog({ activeDevices, onSave, onCancel, onPickLo
               onChange={(e) => setLocalPath(e.target.value)}
               placeholder="/home/user/Dokumente"
             />
-            <button type="button" className="btn-secondary" onClick={pickFolder}>
-              Durchsuchen…
+            <button type="button" className="btn-icon-sm" onClick={pickFolder} title="Ordner durchsuchen">
+              <svg width="15" height="15" viewBox="0 0 20 20" fill="currentColor" aria-hidden>
+                <circle cx="8.5" cy="8.5" r="5.5" fill="none" stroke="currentColor" strokeWidth="2.2"/>
+                <line x1="13" y1="13" x2="18" y2="18" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round"/>
+              </svg>
             </button>
           </div>
         </div>
@@ -117,10 +134,27 @@ export default function NewJobDialog({ activeDevices, onSave, onCancel, onPickLo
             />
             <button
               type="button"
-              className="btn-secondary"
-              onClick={pickUsbFolder}
+              className="btn-icon-sm"
+              onClick={applySuggestion}
+              disabled={!localPath || activeDevices.length === 0}
+              title="USB-Pfad aus lokalem Ordner ableiten"
             >
-              Durchsuchen…
+              <svg width="15" height="15" viewBox="0 0 20 20" fill="currentColor" aria-hidden>
+                <path d="M13 2 L15 4 L7 13 L4 14 L5 11 Z"/>
+                <line x1="11" y1="4" x2="16" y2="9" stroke="currentColor" strokeWidth="1.5"/>
+                <circle cx="17" cy="3" r="1.5"/>
+              </svg>
+            </button>
+            <button
+              type="button"
+              className="btn-icon-sm"
+              onClick={pickUsbFolder}
+              title="Ordner durchsuchen"
+            >
+              <svg width="15" height="15" viewBox="0 0 20 20" fill="currentColor" aria-hidden>
+                <circle cx="8.5" cy="8.5" r="5.5" fill="none" stroke="currentColor" strokeWidth="2.2"/>
+                <line x1="13" y1="13" x2="18" y2="18" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round"/>
+              </svg>
             </button>
           </div>
           {usbError && <p className="warning-text">{usbError}</p>}

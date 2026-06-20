@@ -18,7 +18,9 @@ use sysinfo::Disks;
 use tauri::{AppHandle, Emitter, Manager};
 
 const POLL_INTERVAL: Duration = Duration::from_secs(2);
-const UUID_FILENAME: &str = ".pordata-uuid";
+
+/// Path of the UUID file relative to the stick's mount point.
+pub const UUID_SUBPATH: &str = "pordata/.pordata-uuid";
 
 /// Information about a currently-connected Pordata USB device.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -41,10 +43,10 @@ struct DeviceDetachedPayload {
     uuid: String,
 }
 
-/// Read the trimmed content of `.pordata-uuid` from `mount_point`.
+/// Read the trimmed content of `pordata/.pordata-uuid` from `mount_point`.
 /// Returns `None` when the file is absent or empty.
 fn read_pordata_uuid(mount_point: &std::path::Path) -> Option<String> {
-    let s = fs::read_to_string(mount_point.join(UUID_FILENAME)).ok()?;
+    let s = fs::read_to_string(mount_point.join(UUID_SUBPATH)).ok()?;
     let trimmed = s.trim().to_owned();
     if trimmed.is_empty() { None } else { Some(trimmed) }
 }
