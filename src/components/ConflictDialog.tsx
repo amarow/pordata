@@ -94,13 +94,13 @@ export default function ConflictDialog({
             <div className="conflict-sides">
               <div className="conflict-side local">
                 <span className="side-label">Lokal</span>
-                {c.local_mtime > 0 && <span className="side-size">{formatSize(c.local_size)}</span>}
-                {c.local_mtime > 0 && <span className="side-mtime">{formatDate(c.local_mtime)}</span>}
+                {c.local_mtime > 1 && <span className="side-size">{formatSize(c.local_size)}</span>}
+                {c.local_mtime > 1 && <span className="side-mtime">{formatDate(c.local_mtime)}</span>}
               </div>
               <div className="conflict-side usb">
                 <span className="side-label">USB</span>
-                {c.usb_mtime > 0 && <span className="side-size">{formatSize(c.usb_size)}</span>}
-                {c.usb_mtime > 0 && <span className="side-mtime">{formatDate(c.usb_mtime)}</span>}
+                {c.usb_mtime > 1 && <span className="side-size">{formatSize(c.usb_size)}</span>}
+                {c.usb_mtime > 1 && <span className="side-mtime">{formatDate(c.usb_mtime)}</span>}
               </div>
             </div>
             <div className="conflict-resolution">
