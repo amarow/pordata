@@ -31,6 +31,7 @@ export default function App() {
     direction: string;
   } | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [skippedFiles, setSkippedFiles] = useState<string[]>([]);
   const [validLocalPaths, setValidLocalPaths] = useState<Set<string>>(new Set());
   const [missingPathConfirm, setMissingPathConfirm] = useState<{
     jobId: string;
@@ -74,6 +75,11 @@ export default function App() {
       "sync-progress",
       (e) => setSyncProgress(e.payload)
     );
+    return () => { unlisten.then((f) => f()); };
+  }, []);
+
+  useEffect(() => {
+    const unlisten = listen<string[]>("sync-skipped", (e) => setSkippedFiles(e.payload));
     return () => { unlisten.then((f) => f()); };
   }, []);
 
@@ -215,6 +221,7 @@ export default function App() {
   async function handleSync(jobId: string, direction: "to_usb" | "to_local" | "both" = "both") {
     setSyncProgress({ done: 0, total: 0, copiesDone: 0, currentFile: "", direction });
     setError(null);
+    setSkippedFiles([]);
     try {
       await invoke("start_sync", { jobId, direction });
 
@@ -293,6 +300,20 @@ export default function App() {
         <div className="error-banner">
           <span>{error}</span>
           <button onClick={() => setError(null)}>✕</button>
+        </div>
+      )}
+
+      {skippedFiles.length > 0 && (
+        <div className="warning-banner">
+          <div className="warning-banner-content">
+            <span className="warning-banner-title">
+              {skippedFiles.length} Datei{skippedFiles.length !== 1 ? "en" : ""} übersprungen
+            </span>
+            <ul className="warning-banner-list">
+              {skippedFiles.map((f) => <li key={f}>{f}</li>)}
+            </ul>
+          </div>
+          <button onClick={() => setSkippedFiles([])}>✕</button>
         </div>
       )}
 

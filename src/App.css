@@ -95,6 +95,41 @@ body, #root { height: 100vh; overflow: hidden; }
   font-size: 1rem;
 }
 
+/* ---------- Warning banner (skipped files) ---------- */
+.warning-banner {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 16px;
+  background: rgba(234, 160, 50, 0.15);
+  border-bottom: 1px solid rgba(234, 160, 50, 0.3);
+  color: #fcd48a;
+  font-size: 0.875rem;
+}
+.warning-banner button {
+  background: none;
+  border: none;
+  color: inherit;
+  opacity: 0.7;
+  padding: 0 4px;
+  font-size: 1rem;
+  flex-shrink: 0;
+  cursor: pointer;
+}
+.warning-banner-title {
+  font-weight: 600;
+}
+.warning-banner-list {
+  margin: 4px 0 0;
+  padding-left: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  opacity: 0.85;
+  word-break: break-all;
+}
+
 /* ---------- Modal overlay ---------- */
 .modal-overlay {
   position: fixed;
