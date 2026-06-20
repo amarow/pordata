@@ -15,10 +15,11 @@ interface Props {
   activeIndex: number;
   onTabChange: (i: number) => void;
   onSync: (jobId: string, direction: "to_usb" | "to_local" | "both") => void;
-  onConflicts: (jobId: string) => void;
+  onManual: (jobId: string) => void;
   onBack: () => void;
   syncProgress: SyncProgress | null;
   onCancelSync: () => void;
+  onFreshScan: (jobId: string) => void;
 }
 
 function FileIcon() {
@@ -111,7 +112,7 @@ function FileListModal({ direction, operations, onClose }: FileListModalProps) {
   );
 }
 
-export default function SyncPreview({ results, activeIndex, onTabChange, onSync, onConflicts, onBack, syncProgress, onCancelSync }: Props) {
+export default function SyncPreview({ results, activeIndex, onTabChange, onSync, onManual, onBack, syncProgress, onCancelSync, onFreshScan }: Props) {
   const active = results[activeIndex];
   const s = active.summary;
   const [fileListDir, setFileListDir] = useState<"to_usb" | "to_local" | null>(null);
@@ -251,18 +252,17 @@ export default function SyncPreview({ results, activeIndex, onTabChange, onSync,
                 </button>
               </div>
 
-              {s.conflicts > 0 && (
-                <button
-                  className="dir-btn dir-btn-conflicts"
-                  onClick={() => onConflicts(active.job_id)}
-                >
-                  <span className="dir-btn-top">
-                    <span className="dir-btn-count">{s.conflicts}</span>
-                    <span className="dir-btn-unit">Konflikt{s.conflicts !== 1 ? "e" : ""}</span>
-                  </span>
-                  <span className="dir-btn-arrow">Konflikte lösen</span>
+              <div className="preview-aux-btns">
+                <button className="btn-reset" onClick={() => onFreshScan(active.job_id)}>
+                  Aktualisieren
                 </button>
-              )}
+                <button className="btn-reset btn-reset-manual" onClick={() => onManual(active.job_id)}>
+                  Manuell
+                  {s.conflicts > 0 && (
+                    <span className="manual-conflict-badge">{s.conflicts}</span>
+                  )}
+                </button>
+              </div>
             </>
           )}
         </div>

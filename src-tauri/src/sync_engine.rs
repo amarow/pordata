@@ -326,6 +326,59 @@ pub fn compare_states(
     summary
 }
 
+/// Compare local and USB state purely by file timestamps — no sync index used.
+///
+/// - File only on local  → `CopyToUsb`
+/// - File only on USB    → `CopyToLocal`
+/// - File on both sides  → newer mtime wins; equal mtimes → `UpToDate`
+///
+/// No `DeleteOnLocal`, `DeleteOnUsb`, or `Conflict` operations are produced.
+/// Intended for a "reset view" where the user wants to see what a fresh
+/// comparison would suggest rather than what the index-based diff says.
+pub fn compare_states_fresh(
+    local: &HashMap<String, FileState>,
+    usb: &HashMap<String, FileState>,
+) -> SyncSummary {
+    let all_paths: HashSet<&String> = local.keys().chain(usb.keys()).collect();
+    let mut operations = Vec::new();
+
+    for rel_path in all_paths {
+        let op = match (local.get(rel_path), usb.get(rel_path)) {
+            (Some(_), None) => SyncOperation::CopyToUsb { rel_path: rel_path.clone() },
+            (None, Some(_)) => SyncOperation::CopyToLocal { rel_path: rel_path.clone() },
+            (Some(local_fs), Some(usb_fs)) => {
+                if mtimes_equal(local_fs.mtime, usb_fs.mtime) {
+                    SyncOperation::UpToDate { rel_path: rel_path.clone() }
+                } else if local_fs.mtime > usb_fs.mtime {
+                    SyncOperation::CopyToUsb { rel_path: rel_path.clone() }
+                } else {
+                    SyncOperation::CopyToLocal { rel_path: rel_path.clone() }
+                }
+            }
+            (None, None) => unreachable!(),
+        };
+        operations.push(op);
+    }
+
+    let mut summary = SyncSummary {
+        copy_to_usb: 0,
+        copy_to_local: 0,
+        delete: 0,
+        conflicts: 0,
+        up_to_date: 0,
+        operations,
+    };
+    for op in &summary.operations {
+        match op {
+            SyncOperation::CopyToUsb { .. } => summary.copy_to_usb += 1,
+            SyncOperation::CopyToLocal { .. } => summary.copy_to_local += 1,
+            SyncOperation::UpToDate { .. } => summary.up_to_date += 1,
+            _ => {}
+        }
+    }
+    summary
+}
+
 /// Load a [`SyncIndex`] from a JSON file at `index_path`.
 ///
 /// Returns an empty index if the file does not exist.

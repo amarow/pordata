@@ -69,7 +69,7 @@ export default function ConflictDialog({
           ← Zurück
         </button>
         <h2>
-          Konflikte lösen <span className="badge">{conflicts.length}</span>
+          Manuelle Synchronisation <span className="badge">{conflicts.length}</span>
         </h2>
         <div className="bulk-actions">
           <button className="btn-secondary btn-sm" onClick={setAllNewest}>
@@ -94,13 +94,13 @@ export default function ConflictDialog({
             <div className="conflict-sides">
               <div className="conflict-side local">
                 <span className="side-label">Lokal</span>
-                <span className="side-size">{formatSize(c.local_size)}</span>
-                <span className="side-mtime">{formatDate(c.local_mtime)}</span>
+                {c.local_mtime > 0 && <span className="side-size">{formatSize(c.local_size)}</span>}
+                {c.local_mtime > 0 && <span className="side-mtime">{formatDate(c.local_mtime)}</span>}
               </div>
               <div className="conflict-side usb">
                 <span className="side-label">USB</span>
-                <span className="side-size">{formatSize(c.usb_size)}</span>
-                <span className="side-mtime">{formatDate(c.usb_mtime)}</span>
+                {c.usb_mtime > 0 && <span className="side-size">{formatSize(c.usb_size)}</span>}
+                {c.usb_mtime > 0 && <span className="side-mtime">{formatDate(c.usb_mtime)}</span>}
               </div>
             </div>
             <div className="conflict-resolution">
@@ -132,7 +132,11 @@ export default function ConflictDialog({
       </div>
 
       <div className="conflict-footer">
-        <button className="btn-primary" onClick={handleSubmit}>
+        <button
+          className="btn-primary"
+          onClick={handleSubmit}
+          disabled={conflicts.length === 0 || Object.values(resolutions).every((r) => r === "Skip")}
+        >
           Synchronisieren
         </button>
       </div>

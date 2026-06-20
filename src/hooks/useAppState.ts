@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import type {
@@ -26,12 +26,8 @@ export function useAppState() {
     currentFile: string;
     direction: string;
   } | null>(null);
-  const syncProgressRef = useRef(syncProgress);
-  useEffect(() => { syncProgressRef.current = syncProgress; }, [syncProgress]);
 
-  const scanResultsRef = useRef(scanResults);
-  useEffect(() => { scanResultsRef.current = scanResults; }, [scanResults]);
-
+  const [freshScanJobIds, setFreshScanJobIds] = useState<Set<string>>(new Set());
   const [error, setError] = useState<string | null>(null);
   const [skippedFiles, setSkippedFiles] = useState<string[]>([]);
   const [validLocalPaths, setValidLocalPaths] = useState<Set<string>>(new Set());
@@ -72,21 +68,6 @@ export function useAppState() {
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [view]);
 
-  useEffect(() => {
-    if (view !== "sync-preview") return;
-    const id = setInterval(async () => {
-      if (syncProgressRef.current !== null) return;
-      try {
-        const currentIds = new Set(scanResultsRef.current.map((r) => r.job_id));
-        const refreshed = await invoke<PreScanResult[]>("run_pre_scan", { jobId: null });
-        const relevant = refreshed.filter((r) => currentIds.has(r.job_id));
-        if (relevant.length > 0) setScanResults(relevant);
-      } catch {
-        // Gerät zwischenzeitlich entfernt o.ä. — still ignorieren
-      }
-    }, 5000);
-    return () => clearInterval(id);
-  }, [view]);
 
   useEffect(() => {
     const unlisten = listen<{ done: number; total: number; copiesDone: number; currentFile: string; direction: string }>(
@@ -168,6 +149,7 @@ export function useAppState() {
   }
 
   async function doPreScan(jobId?: string) {
+    setFreshScanJobIds(new Set());
     setError(null);
     try {
       const results = await invoke<PreScanResult[]>("run_pre_scan", { jobId: jobId ?? null });
@@ -219,23 +201,30 @@ export function useAppState() {
     }
   }
 
-  function handleOpenConflicts(jobId: string) {
+  function handleOpenManual(jobId: string) {
     const result = scanResults.find((r) => r.job_id === jobId);
     if (!result) return;
-    const conflicts = result.summary.operations
-      .filter((op) => "Conflict" in op)
-      .map((op) => (op as { Conflict: ConflictInfo }).Conflict);
+    const items: ConflictInfo[] = result.summary.operations.flatMap((op) => {
+      if ("Conflict" in op)      return [op.Conflict];
+      if ("CopyToUsb" in op)     return [{ rel_path: op.CopyToUsb.rel_path,     local_mtime: 1, local_size: 0, usb_mtime: 0, usb_size: 0 }];
+      if ("CopyToLocal" in op)   return [{ rel_path: op.CopyToLocal.rel_path,   local_mtime: 0, local_size: 0, usb_mtime: 1, usb_size: 0 }];
+      if ("DeleteOnLocal" in op) return [{ rel_path: op.DeleteOnLocal.rel_path, local_mtime: 1, local_size: 0, usb_mtime: 0, usb_size: 0 }];
+      if ("DeleteOnUsb" in op)   return [{ rel_path: op.DeleteOnUsb.rel_path,   local_mtime: 0, local_size: 0, usb_mtime: 1, usb_size: 0 }];
+      return [];
+    });
     setConflictJobId(jobId);
-    setConflictOps(conflicts);
+    setConflictOps(items);
     setView("conflict");
   }
 
   async function handleSync(jobId: string, direction: "to_usb" | "to_local" | "both" = "both") {
+    const fresh = freshScanJobIds.has(jobId);
+    setFreshScanJobIds((prev) => { const s = new Set(prev); s.delete(jobId); return s; });
     setSyncProgress({ done: 0, total: 0, copiesDone: 0, currentFile: "", direction });
     setError(null);
     setSkippedFiles([]);
     try {
-      await invoke("start_sync", { jobId, direction });
+      await invoke("start_sync", { jobId, direction, fresh });
       const refreshed = await invoke<PreScanResult[]>("run_pre_scan", { jobId });
       if (refreshed.length === 0) {
         setView("dashboard");
@@ -263,6 +252,19 @@ export function useAppState() {
     try {
       await invoke("resolve_conflicts", { jobId, resolutions });
       setView("dashboard");
+    } catch (e) {
+      setError(String(e));
+    }
+  }
+
+  async function handleFreshScan(jobId: string) {
+    setError(null);
+    try {
+      const refreshed = await invoke<PreScanResult[]>("run_pre_scan_fresh", { jobId });
+      if (refreshed.length > 0) {
+        setScanResults((prev) => prev.map((r) => (r.job_id === jobId ? refreshed[0] : r)));
+        setFreshScanJobIds((prev) => new Set(prev).add(jobId));
+      }
     } catch (e) {
       setError(String(e));
     }
@@ -299,10 +301,11 @@ export function useAppState() {
     handleDeleteJob,
     handleStartPreScan,
     handleConfirmCreatePaths,
-    handleOpenConflicts,
+    handleOpenManual,
     handleSync,
     handleCancelSync,
     handleResolveConflicts,
+    handleFreshScan,
     pickLocalFolder,
     pickUsbFolder,
     initUsbDevice,

@@ -13,8 +13,8 @@ use tauri::{Emitter, Manager, State};
 use crate::config::{add_sync_job, remove_sync_job, save_config, Config, SyncJob};
 use crate::device_monitor::{ActiveDevices, DeviceInfo};
 use crate::sync_engine::{
-    compare_states, execute_sync, load_index, resolve_conflict, save_index, scan_directory,
-    ConflictResolution, SyncOperation, SyncSummary,
+    compare_states, compare_states_fresh, execute_sync, load_index, resolve_conflict, save_index,
+    scan_directory, ConflictResolution, SyncOperation, SyncSummary,
 };
 
 // ---------------------------------------------------------------------------
@@ -225,6 +225,49 @@ fn run_pre_scan(
     Ok(results)
 }
 
+#[tauri::command]
+fn run_pre_scan_fresh(
+    job_id: Option<String>,
+    state: State<AppState>,
+) -> Result<Vec<PreScanResult>, String> {
+    let jobs: Vec<SyncJob> = {
+        let config = state.config.lock().map_err(|e| e.to_string())?;
+        match &job_id {
+            Some(id) => config.jobs.iter().filter(|j| &j.id == id).cloned().collect(),
+            None => config.jobs.clone(),
+        }
+    };
+
+    let active = state.active_devices.lock().map_err(|e| e.to_string())?;
+
+    let mut results = Vec::new();
+    for job in &jobs {
+        let Some(device) = active.get(&job.usb_uuid) else {
+            continue;
+        };
+
+        let local_root = PathBuf::from(&job.local_path);
+        let usb_root = PathBuf::from(&device.mount_path).join(&job.usb_subfolder);
+        std::fs::create_dir_all(&usb_root).map_err(|e| e.to_string())?;
+
+        let local_state = scan_directory(&local_root)?;
+        let usb_state = scan_directory(&usb_root)?;
+        let summary = compare_states_fresh(&local_state, &usb_state);
+
+        results.push(PreScanResult {
+            job_id: job.id.clone(),
+            local_path: job.local_path.clone(),
+            usb_mount_path: device.mount_path.clone(),
+            usb_subfolder: job.usb_subfolder.clone(),
+            local_file_count: local_state.len(),
+            usb_file_count: usb_state.len(),
+            summary,
+        });
+    }
+
+    Ok(results)
+}
+
 #[derive(Serialize, Clone)]
 #[serde(rename_all = "camelCase")]
 struct SyncProgressEvent {
@@ -239,6 +282,7 @@ struct SyncProgressEvent {
 async fn start_sync(
     job_id: String,
     direction: String,
+    fresh: bool,
     app: tauri::AppHandle,
     state: State<'_, AppState>,
 ) -> Result<SyncSummary, String> {
@@ -275,7 +319,11 @@ async fn start_sync(
         let local_state = scan_directory(&local_root)?;
         let usb_state = scan_directory(&usb_root)?;
         let mut index = load_index(&idx_path)?;
-        let summary = compare_states(&local_state, &usb_state, &index);
+        let summary = if fresh {
+            compare_states_fresh(&local_state, &usb_state)
+        } else {
+            compare_states(&local_state, &usb_state, &index)
+        };
 
         let ops: Vec<SyncOperation> = summary.operations.iter().filter(|op| {
             match direction.as_str() {
@@ -409,6 +457,7 @@ pub fn run() {
             select_directory,
             select_directory_from,
             run_pre_scan,
+            run_pre_scan_fresh,
             start_sync,
             cancel_sync,
             resolve_conflicts,

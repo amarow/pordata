@@ -194,8 +194,6 @@ body, #root { height: 100vh; overflow: hidden; }
   align-items: stretch;
   gap: 12px;
   padding: 24px;
-  width: 100%;
-  max-width: 280px;
 }
 .sync-running-label {
   display: flex;
@@ -727,7 +725,8 @@ select option { background: var(--bg); color: var(--text); }
   flex-direction: column;
   gap: 10px;
   align-items: stretch;
-  min-width: 180px;
+  width: 240px;
+  flex-shrink: 0;
 }
 
 .dir-btn {
@@ -764,6 +763,40 @@ select option { background: var(--bg); color: var(--text); }
   background: rgba(245, 134, 58, 0.1);
   border-color: rgba(245, 134, 58, 0.3);
   color: var(--orange);
+}
+.preview-aux-btns {
+  display: flex;
+  gap: 8px;
+  justify-content: center;
+}
+.btn-reset {
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--text-muted);
+  font-size: 0.8rem;
+  padding: 5px 14px;
+  cursor: pointer;
+  align-self: center;
+  transition: color 0.15s, border-color 0.15s;
+}
+.btn-reset:hover {
+  color: var(--text);
+  border-color: var(--border-active);
+}
+.btn-reset-manual {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.manual-conflict-badge {
+  background: var(--orange, #e07b30);
+  color: #fff;
+  font-size: 0.7rem;
+  font-weight: 600;
+  border-radius: 10px;
+  padding: 1px 6px;
+  line-height: 1.4;
 }
 
 .dir-btn-top {
@@ -953,6 +986,7 @@ select option { background: var(--bg); color: var(--text); }
   display: flex;
   flex-direction: column;
   gap: 10px;
+  padding-right: 20px;
 }
 .conflict-item {
   background: var(--surface);

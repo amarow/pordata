@@ -25,10 +25,11 @@ export default function App() {
     handleDeleteJob,
     handleStartPreScan,
     handleConfirmCreatePaths,
-    handleOpenConflicts,
+    handleOpenManual,
     handleSync,
     handleCancelSync,
     handleResolveConflicts,
+    handleFreshScan,
     pickLocalFolder,
     pickUsbFolder,
     initUsbDevice,
@@ -119,10 +120,11 @@ export default function App() {
           activeIndex={activeScanIndex}
           onTabChange={setActiveScanIndex}
           onSync={handleSync}
-          onConflicts={handleOpenConflicts}
+          onManual={handleOpenManual}
           onBack={() => setView("dashboard")}
           syncProgress={syncProgress}
           onCancelSync={handleCancelSync}
+          onFreshScan={handleFreshScan}
         />
       )}
 
