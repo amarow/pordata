@@ -35,6 +35,7 @@ WebView, die gesamte Sync-Logik steckt im Rust-Backend.
 │  │      (State,            (JSX-           Dashboard  │  │
 │  │       Handler)          Routing)        SyncPreview│  │
 │  │                                        ConflictDlg │  │
+│  │                                        NewJobDialog│  │
 │  └──────────────────────┬────────────────────────────┘  │
 │                         │  Tauri IPC                     │
 │              invoke() / listen() / emit()                │
@@ -50,21 +51,25 @@ WebView, die gesamte Sync-Logik steckt im Rust-Backend.
 │  │  get_sync_jobs ─────────► config                   │  │
 │  │  create/delete_sync_job ► config                   │  │
 │  │  init_usb_device ───────► sysinfo                  │  │
+│  │  setup_usb_stick ───────► Dateisystem              │  │
+│  │  suggest_usb_subfolder ─► (pure fn)                │  │
 │  │                                                    │  │
 │  │  AppState { config, active_devices, cancel_sync }  │  │
-│  └──────────────────────────────────────────────────-┘  │
+│  └────────────────────────────────────────────────────┘  │
 │                                                          │
-│  ┌──────────────────────────────────────────────────-┐  │
+│  ┌────────────────────────────────────────────────────┐  │
 │  │           device_monitor (Hintergrund-Thread)      │  │
-│  │  poll alle 2 s → prüft .pordata-uuid               │  │
-│  │  → emitiert "device-attached" / "device-detached"  │  │
-│  └───────────────────────────────────────────────────┘  │
+│  │  poll alle 2 s → prüft pordata/.pordata-uuid       │  │
+│  │  → emittiert "device-attached" / "device-detached" │  │
+│  └────────────────────────────────────────────────────┘  │
 └─────────────────────────────────────────────────────────┘
 
 Persistenz (Dateisystem):
   ~/.config/pordata/config.json          ← alle SyncJobs
   ~/.config/pordata/index_<JOB-ID>.json  ← Sync-Index pro Job
-  <USB-Root>/.pordata-uuid               ← Stick-Identität
+  <USB-Root>/pordata/.pordata-uuid       ← Stick-Identität
+  <USB-Root>/pordata/Linux/              ← App-Binary (Linux)
+  <USB-Root>/pordata/Windows/            ← App-Binary (Windows)
 ```
 
 ---
@@ -73,7 +78,7 @@ Persistenz (Dateisystem):
 
 ```
 USB-Stick einstecken
-  └─► device_monitor erkennt neue Disk mit .pordata-uuid
+  └─► device_monitor erkennt neue Disk mit pordata/.pordata-uuid
       └─► "device-attached" Event → Frontend aktualisiert activeDevices
 
 Nutzer klickt "Sync starten"
@@ -98,6 +103,12 @@ Nutzer klickt Richtungs-Button
 Nutzer klickt "Manuell"
   └─► ConflictDialog öffnet sich mit allen anstehenden Operationen
       └─► resolve_conflicts → copy / skip pro Datei → save_index
+
+Nutzer klickt USB-Icon im Dashboard
+  └─► setup_usb_stick(mount_path)
+      ├─► read_or_create_uuid → pordata/.pordata-uuid schreiben
+      ├─► pordata/Windows/ + pordata/Linux/ anlegen
+      └─► $APPIMAGE gesetzt? → AppImage nach pordata/Linux/ kopieren
 ```
 
 ---
@@ -118,6 +129,9 @@ SyncOperation   CopyToUsb | CopyToLocal | DeleteOnUsb | DeleteOnLocal
 ConflictResolution  KeepLocal | KeepUsb | Skip
 ```
 
+`SyncSummary::from_operations(ops)` befüllt alle Zähler aus der Operationsliste
+— wird von `compare_states` und `compare_states_fresh` geteilt.
+
 **`compare_states` — Index-basierter Diff:**
 
 ```
@@ -125,24 +139,24 @@ Datei nur lokal  + im Index  → DeleteOnLocal  (auf USB gelöscht)
 Datei nur lokal  – im Index  → CopyToUsb      (neu)
 Datei nur auf USB + im Index → DeleteOnUsb    (lokal gelöscht)
 Datei nur auf USB – im Index → CopyToLocal    (neu)
-Beide Seiten     + im Index  → geändert lokal?  → CopyToUsb
-                               geändert USB?    → CopyToLocal
-                               beide geändert?  → Conflict
-                               nichts geändert? → UpToDate
-Beide Seiten     – im Index  → mtimes gleich?   → UpToDate
+Beide Seiten     + im Index  → geändert lokal?    → CopyToUsb
+                               geändert USB?      → CopyToLocal
+                               beide geändert?    → Conflict
+                               nichts geändert?   → UpToDate
+Beide Seiten     – im Index  → mtimes gleich?     → UpToDate
                                mtimes verschieden? → Conflict
 ```
 
 **`compare_states_fresh` — Zeitstempel-Vergleich (kein Index):**
 
 ```
-Datei nur lokal  → CopyToUsb
+Datei nur lokal   → CopyToUsb
 Datei nur auf USB → CopyToLocal
-Beide Seiten     → neuere mtime gewinnt; gleich → UpToDate
-                   (keine Delete-Operationen)
+Beide Seiten      → neuere mtime gewinnt; gleich → UpToDate
+                    (keine Delete-Operationen)
 ```
 
-Wird über "Aktualisieren" ausgelöst, wenn der Nutzer den Index ignorieren
+Wird über „Aktualisieren" ausgelöst, wenn der Nutzer den Index ignorieren
 und rein nach Zeitstempeln entscheiden lassen möchte.
 
 **FAT32-Toleranz:** Zeitstempel-Differenzen ≤ 2 Sekunden gelten als gleich
@@ -167,17 +181,26 @@ AppState {
 `active_devices` gesperrt wird — verhindert Deadlocks.
 
 **Interne Helper:**
-- `resolve_job_roots(job_id, state)` — ermittelt `(local_root, usb_root)` aus
-  Job-Config und aktivem Device; von `start_sync` und `resolve_conflicts` geteilt
-- `collect_pre_scan_results(job_id, state, fresh)` — gemeinsame Logik für
-  `run_pre_scan` und `run_pre_scan_fresh`
-- `job_index_path(job_id)` — liefert den Pfad zum Index-JSON
+
+| Helper | Aufgabe |
+|--------|---------|
+| `resolve_job_roots(job_id, state)` | Liefert `(local_root, usb_root)` aus Job-Config + aktivem Device; geteilt von `start_sync` und `resolve_conflicts` |
+| `collect_pre_scan_results(job_id, state, fresh)` | Gemeinsame Scan-Logik für `run_pre_scan` und `run_pre_scan_fresh` |
+| `read_or_create_uuid(mount)` | Liest oder erstellt `pordata/.pordata-uuid`; geteilt von `init_usb_device` und `setup_usb_stick` |
+| `job_index_path(job_id)` | Pfad zum Index-JSON in `~/.config/pordata/` |
 
 **Fortschritts-Events:** `start_sync` läuft in `spawn_blocking`, damit der
 GTK/WebKit-Event-Loop frei bleibt. Fortschritt wird als Tauri-Event
 `sync-progress` emittiert (max. alle 100 ms oder bei ≥ 1 % Änderung).
 Übersprungene Dateien (z. B. FAT32-illegale Dateinamen) landen im
 `sync-skipped`-Event und werden als Warning-Banner angezeigt.
+
+**`setup_usb_stick`:** Richtet einen Stick einmalig ein — schreibt die UUID,
+legt `pordata/Windows/` und `pordata/Linux/` an und kopiert das laufende
+AppImage nach `pordata/Linux/` (wenn `$APPIMAGE` gesetzt ist).
+
+**`suggest_usb_subfolder`:** Leitet einen USB-Unterordner aus dem lokalen Pfad
+ab: `/home/ama/Dokumente/Segeln` → `pordata/home/ama/Dokumente/Segeln`.
 
 ### `config.rs` — Job-Verwaltung
 
@@ -188,9 +211,9 @@ UUID des zugehörigen USB-Sticks.
 ### `device_monitor.rs` — USB-Erkennung
 
 Hintergrund-Thread; prüft alle 2 Sekunden über `sysinfo::Disks`, welche
-Wechseldatenträger eingesteckt sind. Nur Disks mit `.pordata-uuid` im
-Stammverzeichnis werden erkannt. Ändert sich der Zustand, werden
-`device-attached`- bzw. `device-detached`-Events an die WebView emittiert.
+Wechseldatenträger eingesteckt sind. Nur Disks mit `pordata/.pordata-uuid`
+werden erkannt. Ändert sich der Zustand, werden `device-attached`- bzw.
+`device-detached`-Events an die WebView emittiert.
 
 ---
 
@@ -199,13 +222,13 @@ Stammverzeichnis werden erkannt. Ändert sich der Zustand, werden
 ### State-Architektur
 
 ```
-useAppState.ts          ← gesamter App-State + alle Handler
+useAppState.ts          ← gesamter App-State + alle Handler + invoke()-Aufrufe
     │
     └─► App.tsx         ← nur JSX, kein eigener State
-        ├─► Dashboard
-        ├─► NewJobDialog
-        ├─► SyncPreview
-        └─► ConflictDialog
+        ├─► Dashboard       (Jobs, USB-Einrichten-Button)
+        ├─► NewJobDialog    (lokaler + USB-Pfad, Vorschlag-Button)
+        ├─► SyncPreview     (Richtungs-Buttons, Aktualisieren, Manuell)
+        └─► ConflictDialog  (Manuelle Synchronisation)
 ```
 
 Kein Router, keine State-Library. Navigation über `useState<View>` mit dem
@@ -227,12 +250,20 @@ Aktualisieren-Scan (`run_pre_scan_fresh`) aktiv ist. Beim nachfolgenden
 damit der Index-freie Vergleich auch tatsächlich beim Kopieren verwendet wird.
 Nach einem regulären Pre-Scan wird das Set geleert.
 
+### NewJobDialog — Pfad-Vorschlag
+
+Beim Anlegen eines neuen Jobs bietet ein Zauberstab-Button an, den USB-Pfad
+automatisch aus dem lokalen Pfad abzuleiten (`suggest_usb_subfolder`). Die
+Lupe öffnet den Datei-Browser. Beim Speichern werden lokaler Ordner und
+USB-Unterordner automatisch angelegt (`create_directory`).
+
 ### USB-Stick-Identität
 
-Ein Stick wird eindeutig über den getrimten Inhalt von `.pordata-uuid` in
-seinem Stammverzeichnis identifiziert. Diese UUID ist der Schlüssel in
-`AppState.active_devices` und wird in `SyncJob.usb_uuid` gespeichert.
-`init_usb_device` legt die Datei beim ersten Einrichten automatisch an.
+Ein Stick wird eindeutig über den getrimten Inhalt von `pordata/.pordata-uuid`
+identifiziert. Diese UUID ist der Schlüssel in `AppState.active_devices` und
+wird in `SyncJob.usb_uuid` gespeichert. `init_usb_device` (beim Einrichten
+eines neuen Jobs) und `setup_usb_stick` (Dashboard-Button) legen die Datei
+automatisch an.
 
 ---
 
@@ -245,12 +276,15 @@ seinem Stammverzeichnis identifiziert. Diese UUID ist der Schlüssel in
 └── index_<JOB-ID-2>.json
 
 <USB-Mount>/
-├── .pordata-uuid              ← "pd-…" (Stick-Identität)
-└── <usb_subfolder>/           ← synchronisierter Ordner
-    └── …
+└── pordata/
+    ├── .pordata-uuid          ← "pd-…" (Stick-Identität)
+    ├── Windows/               ← App-Binary für Windows
+    ├── Linux/                 ← App-Binary für Linux (AppImage)
+    └── home/ama/Dokumente/    ← Beispiel: synchronisierter Unterordner
+        └── …                    (usb_subfolder = "pordata/home/ama/Dokumente")
 ```
 
-Der Sync-Index ist der "Gedächtnis"-Mechanismus: Er speichert den Zustand
-beider Seiten nach dem letzten erfolgreichen Sync und ermöglicht so die
-Unterscheidung zwischen "auf einer Seite gelöscht" und "auf der anderen Seite
+Der Sync-Index ist der „Gedächtnis"-Mechanismus: Er speichert den Zustand
+beider Seiten nach dem letzten erfolgreichen Sync und ermöglicht die
+Unterscheidung zwischen „auf einer Seite gelöscht" und „auf der anderen Seite
 hinzugefügt".
