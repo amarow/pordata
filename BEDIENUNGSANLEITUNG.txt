@@ -1,0 +1,113 @@
+PORDATA SYNC – BEDIENUNGSANLEITUNG
+===================================
+Version 0.1.0 | Linux AppImage
+
+
+WAS MACHT DIESE APP?
+--------------------
+Pordata Sync gleicht Ordner zwischen deinem Computer und diesem USB-Stick ab.
+Du entscheidest bei jedem Sync, in welche Richtung Dateien übertragen werden.
+
+
+VORAUSSETZUNGEN
+---------------
+- Linux (Ubuntu, Debian, Fedora oder kompatibel)
+- Die Datei "tauri-app_0.1.0_amd64.AppImage" von diesem USB-Stick
+
+
+APP STARTEN
+-----------
+1. AppImage-Datei ins Terminal ziehen oder doppelklicken.
+   Beim ersten Start ggf. ausführbar machen:
+
+     chmod +x tauri-app_0.1.0_amd64.AppImage
+     ./tauri-app_0.1.0_amd64.AppImage
+
+2. Das Hauptfenster "Pordata Sync" öffnet sich.
+
+
+ERSTE EINRICHTUNG – SYNC-JOB ANLEGEN
+-------------------------------------
+Ein "Sync-Job" verbindet einen lokalen Ordner auf deinem Computer mit einem
+Ordner auf dem USB-Stick. Du kannst mehrere Jobs einrichten.
+
+1. USB-Stick einstecken.
+2. Im Hauptfenster auf "+ Neue Synchronisation" klicken.
+3. Lokalen Ordner auswählen (Ordner-Symbol oder Pfad eingeben).
+4. USB-Ordner auswählen – die App erkennt den Stick automatisch.
+   Tipp: Mit dem Pfeil-Symbol wird der USB-Pfad vom lokalen Ordnernamen abgeleitet.
+5. Auf "Speichern" klicken.
+
+Der Job erscheint jetzt in der Übersicht. Er wird automatisch mit dem
+richtigen USB-Stick verknüpft (per eindeutiger ID auf dem Stick).
+
+
+SYNCHRONISATION DURCHFÜHREN
+----------------------------
+1. USB-Stick einstecken (muss erkannt sein – Statusanzeige im Dashboard).
+2. Beim gewünschten Job auf das Sync-Symbol (Pfeile) klicken.
+3. Die App analysiert beide Seiten und zeigt eine Vorschau ("Sync-Vorschau"):
+
+     Lokal → USB   (blauer Button)
+       Überträgt neue und geänderte Dateien vom Computer auf den Stick.
+       Löscht Dateien auf dem Stick, die lokal gelöscht wurden.
+
+     Lokal ← USB   (grüner Button)
+       Überträgt neue und geänderte Dateien vom Stick auf den Computer.
+       Löscht lokale Dateien, die auf dem Stick gelöscht wurden.
+
+4. Gewünschte Richtung wählen. Der Fortschritt wird angezeigt.
+5. Nach Abschluss aktualisiert sich die Vorschau. Sind alle Zähler auf 0,
+   ist alles synchron – das Dashboard öffnet sich automatisch.
+
+
+KONFLIKTE LÖSEN
+---------------
+Ein Konflikt tritt auf, wenn dieselbe Datei auf beiden Seiten geändert wurde.
+Die App zeigt einen orangefarbenen Button "Konflikte lösen".
+
+1. Button anklicken.
+2. Pro Datei wählen:
+     Lokal  – die lokale Version behalten
+     USB    – die USB-Version behalten
+     Skip   – diese Datei überspringen
+3. Mit "Alle: Lokal" oder "Alle: USB" alle Konflikte auf einmal auflösen.
+   Die jeweils neuere Datei ist vorausgewählt.
+4. Auf "Synchronisieren" klicken.
+
+
+DESIGN WECHSELN
+---------------
+Oben rechts im Fenster befindet sich ein Schalter für helles/dunkles Design.
+Die Einstellung wird gespeichert.
+
+
+SYNC-JOB LÖSCHEN
+-----------------
+Im Dashboard neben dem Job auf das Papierkorb-Symbol klicken und bestätigen.
+Dadurch werden keine Dateien gelöscht – nur der Job wird entfernt.
+
+
+FEHLERBEHEBUNG
+--------------
+App startet nicht:
+  → AppImage-Datei ausführbar machen (siehe "APP STARTEN")
+  → FUSE prüfen: sudo apt install fuse  (Ubuntu/Debian)
+
+Stick wird nicht erkannt:
+  → Prüfen, ob der Stick korrekt eingesteckt ist
+  → Prüfen, ob ein Job für diesen Stick eingerichtet ist
+
+Pfad wird grau/gedimmt angezeigt:
+  → Der lokale Ordner oder der Stick ist gerade nicht verfügbar
+
+Alle Jobs zurücksetzen:
+  → Datei löschen: ~/.config/pordata/config.json
+
+Sync-Index für einen Job zurücksetzen:
+  → Datei löschen: ~/.config/pordata/index_<JOB-ID>.json
+
+
+KONTAKT / SUPPORT
+-----------------
+andreas.marochow@googlemail.com
