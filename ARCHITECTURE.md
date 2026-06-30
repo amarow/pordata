@@ -12,7 +12,7 @@ WebView, die gesamte Sync-Logik steckt im Rust-Backend.
 
 | Schicht | Technologie |
 |---------|-------------|
-| UI | React 18, TypeScript, Vite |
+| UI | React 19, TypeScript, Vite |
 | Desktop-Shell | Tauri 2 (WebView2 / WebKit) |
 | Backend | Rust (stable) |
 | Dateisystem | `walkdir`, `filetime` |

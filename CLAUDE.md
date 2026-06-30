@@ -12,6 +12,7 @@ Pordata Sync is a Tauri 2 desktop app for bidirectional USB folder synchronisati
 npm install              # first-time setup
 npm run tauri dev        # dev mode (starts Vite + compiles Rust; first build ~1-2 min)
 npm run tauri build      # production AppImage / .deb → src-tauri/target/release/bundle/
+npm run deploy           # build + copy AppImage & BEDIENUNGSANLEITUNG.txt → deploy/
 
 cd src-tauri && cargo test   # Rust unit tests (all in sync_engine.rs and config.rs)
 ```
@@ -78,13 +79,17 @@ User clicks a direction button ("Lokal → USB" or "Lokal ← USB")
 **Extra Tauri commands** (beyond the original set):
 - `check_path_exists(path) -> bool` — used to validate paths before scan
 - `create_directory(path) -> Result<(), String>` — creates missing local or USB folder
-- `init_usb_device(path) -> Result<{mount_path, uuid}, String>` — reads or auto-creates `.pordata-uuid` on stick root; used by NewJobDialog
+- `init_usb_device(path) -> Result<{mount_path, uuid}, String>` — reads or auto-creates `pordata/.pordata-uuid`; used by NewJobDialog
+- `setup_usb_stick(mount_path) -> Result<SetupStickResult, String>` — writes UUID, creates `pordata/Windows/` + `pordata/Linux/`, copies running AppImage if `$APPIMAGE` is set
+- `suggest_usb_subfolder(local_path) -> String` — derives USB subfolder from local path (e.g. `/home/ama/Docs` → `pordata/home/ama/Docs`)
+- `run_pre_scan_fresh(job_id) -> PreScanResult` — timestamp-only scan ignoring the index; triggered by "Aktualisieren"
+- `cancel_sync()` — sets `AppState.cancel_sync` flag to abort a running sync
 
 ### React frontend (`src/`)
 
-`App.tsx` owns all state and view routing. `View` type is a discriminated union: `'dashboard' | 'new-job' | 'sync-preview' | 'conflict'`. There is no router or state library — navigation is a plain `useState<View>`.
+All state and `invoke()` calls live in `src/hooks/useAppState.ts`. `App.tsx` is pure JSX — it calls `useAppState()` and passes callbacks down. `View` type is a discriminated union: `'dashboard' | 'new-job' | 'sync-preview' | 'conflict'`. There is no router or state library — navigation is a plain `useState<View>`.
 
-All Tauri IPC goes through `invoke()` in `App.tsx`; child components receive callbacks only. `src/types.ts` mirrors every Rust type that crosses the IPC boundary.
+`src/types.ts` mirrors every Rust type that crosses the IPC boundary.
 
 **Theme**: dark/light toggle persisted in `localStorage` under `pordata-theme`. Applied via `document.documentElement.classList.toggle("light", ...)`. CSS uses `:root` for dark defaults, `:root.light` for overrides.
 

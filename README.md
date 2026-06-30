@@ -18,7 +18,7 @@ Eine intuitive, plattformübergreifende Desktop-App zur **bidirektionalen USB-Sy
 - **Konfliktlösung** mit Dateidetails (Größe, Datum), neueste Datei vorausgewählt
 - **FAT32/exFAT-kompatibel** (2-Sekunden-Toleranz bei mtimes)
 - **Dark / Light Mode** mit automatischer Systemerkennung
-- **Pfad-Überwachung** — ausgegrautr Pfad wenn Ordner nicht mehr erreichbar ist
+- **Pfad-Überwachung** — ausgegrauter Pfad wenn Ordner nicht mehr erreichbar ist
 
 ## Tech Stack
 
@@ -35,18 +35,22 @@ Eine intuitive, plattformübergreifende Desktop-App zur **bidirektionalen USB-Sy
 ```
 pordata/
 ├── src/                  # React-Frontend
-│   ├── App.tsx           # Haupt-Komponente & State-Management
-│   └── App.css           # Design-System
+│   ├── hooks/
+│   │   └── useAppState.ts # Gesamter App-State + invoke()-Aufrufe
+│   ├── components/       # UI-Komponenten
+│   ├── App.tsx           # JSX-Routing (kein eigener State)
+│   ├── types.ts          # Rust-Typen gespiegelt
+│   └── utils.ts          # Hilfsfunktionen
 ├── src-tauri/            # Rust-Backend
 │   ├── src/
-│   │   ├── main.rs       # Einstiegspunkt
-│   │   ├── lib.rs        # Tauri-Commands
+│   │   ├── lib.rs        # Tauri-Commands & AppState
 │   │   ├── config.rs     # Konfigurationsverwaltung
 │   │   ├── sync_engine.rs# Synchronisierungslogik
 │   │   └── device_monitor.rs # USB-Erkennung
 │   └── Cargo.toml
-├── implementation_plan.md
-└── tasks.md
+├── scripts/
+│   └── package-linux.sh  # AppImage + Anleitung → deploy/
+└── deploy/               # (gitignore) Release-Artefakte
 ```
 
 ## App starten
@@ -63,6 +67,7 @@ Für End-to-End-Tests und USB-Stick-Einrichtung → [TESTING.md](./TESTING.md)
 
 ```bash
 npm run tauri build       # Produktions-Build (AppImage / .deb)
+npm run deploy            # Build + AppImage & Bedienungsanleitung → deploy/
 cd src-tauri && cargo test # Rust-Unit-Tests (31/31)
 ```
 
