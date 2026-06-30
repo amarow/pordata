@@ -22,13 +22,13 @@ Eine intuitive, plattformübergreifende Desktop-App zur **bidirektionalen USB-Sy
 
 ## Tech Stack
 
-| Schicht   | Technologie                              |
-|-----------|------------------------------------------|
-| Desktop   | [Tauri 2](https://tauri.app)             |
-| Backend   | Rust (`sysinfo`, `walkdir`, `filetime`, `rfd`) |
-| Frontend  | React 19 + TypeScript                    |
-| Build     | Vite 7                                   |
-| Styling   | Vanilla CSS (Dark Mode, Glassmorphism)   |
+| Schicht  | Technologie                                    |
+| -------- | ---------------------------------------------- |
+| Desktop  | [Tauri 2](https://tauri.app)                   |
+| Backend  | Rust (`sysinfo`, `walkdir`, `filetime`, `rfd`) |
+| Frontend | React 19 + TypeScript                          |
+| Build    | Vite 7                                         |
+| Styling  | Vanilla CSS (Dark Mode, Glassmorphism)         |
 
 ## Projektstruktur
 
