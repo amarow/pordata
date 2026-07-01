@@ -33,11 +33,18 @@ pub struct SyncJob {
 pub struct Config {
     /// List of configured sync jobs.
     pub jobs: Vec<SyncJob>,
+    /// Glob-style patterns for files/directories to exclude from every sync.
+    /// Supports `*` as a wildcard prefix or suffix (e.g. `"node_modules"`, `"*.log"`).
+    #[serde(default)]
+    pub global_ignores: Vec<String>,
 }
 
 impl Default for Config {
     fn default() -> Self {
-        Self { jobs: Vec::new() }
+        Self {
+            jobs: Vec::new(),
+            global_ignores: Vec::new(),
+        }
     }
 }
 

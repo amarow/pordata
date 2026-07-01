@@ -177,14 +177,34 @@ fn copy_preserving_mtime(src: &Path, dst: &Path) -> Result<(), String> {
 // Public API
 // ---------------------------------------------------------------------------
 
+/// Returns `true` if `entry` should be excluded based on `patterns`.
+///
+/// Each pattern is matched against the entry's file name only:
+/// - `"node_modules"` — exact name match
+/// - `"*.log"`        — suffix match (name ends with `.log`)
+/// - `"tmp*"`         — prefix match (name starts with `tmp`)
+fn is_ignored(entry: &walkdir::DirEntry, patterns: &[String]) -> bool {
+    let name = entry.file_name().to_string_lossy();
+    patterns.iter().any(|pat| {
+        if let Some(suffix) = pat.strip_prefix('*') {
+            name.ends_with(suffix)
+        } else if let Some(prefix) = pat.strip_suffix('*') {
+            name.starts_with(prefix)
+        } else {
+            name == pat.as_str()
+        }
+    })
+}
+
 /// Recursively scan `root` and return a map of relative path → [`FileState`].
 ///
 /// Only regular files are included; directories and symlinks are skipped.
-/// Relative paths use forward-slash separators on all platforms.
-pub fn scan_directory(root: &Path) -> Result<HashMap<String, FileState>, String> {
+/// Entries matching any pattern in `ignores` are pruned (entire subtrees for
+/// directories). Relative paths use forward-slash separators on all platforms.
+pub fn scan_directory(root: &Path, ignores: &[String]) -> Result<HashMap<String, FileState>, String> {
     let mut files = HashMap::new();
 
-    for entry in WalkDir::new(root) {
+    for entry in WalkDir::new(root).into_iter().filter_entry(|e| !is_ignored(e, ignores)) {
         let entry = entry.map_err(|e| format!("walkdir error: {e}"))?;
 
         // Skip anything that is not a regular file.
@@ -887,7 +907,7 @@ mod tests {
         write_file(&dir, "hello.txt", "hello", 1_600_000_000);
         write_file(&dir, "sub/deep.txt", "deep", 1_600_000_010);
 
-        let files = scan_directory(&dir).unwrap();
+        let files = scan_directory(&dir, &[]).unwrap();
 
         assert_eq!(files.len(), 2);
         assert!(files.contains_key("hello.txt"));
@@ -1192,8 +1212,8 @@ mod tests {
         write_file(&usb_root, "shared.txt", "v1", 1_700_000_000);
         write_file(&usb_root, "only_usb.txt", "theirs", 1_700_000_000);
 
-        let local_state = scan_directory(&local_root).unwrap();
-        let usb_state = scan_directory(&usb_root).unwrap();
+        let local_state = scan_directory(&local_root, &[]).unwrap();
+        let usb_state = scan_directory(&usb_root, &[]).unwrap();
         let idx = SyncIndex::empty();
 
         let summary = compare_states(&local_state, &usb_state, &idx);

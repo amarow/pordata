@@ -72,12 +72,13 @@ fn collect_pre_scan_results(
     state: &AppState,
     fresh: bool,
 ) -> Result<Vec<PreScanResult>, String> {
-    let jobs: Vec<SyncJob> = {
+    let (jobs, ignores): (Vec<SyncJob>, Vec<String>) = {
         let config = state.config.lock().map_err(|e| e.to_string())?;
-        match job_id {
+        let jobs = match job_id {
             Some(id) => config.jobs.iter().filter(|j| j.id == id).cloned().collect(),
             None => config.jobs.clone(),
-        }
+        };
+        (jobs, config.global_ignores.clone())
     };
     let active = state.active_devices.lock().map_err(|e| e.to_string())?;
     let mut results = Vec::new();
@@ -88,8 +89,8 @@ fn collect_pre_scan_results(
         let local_root = PathBuf::from(&job.local_path);
         let usb_root = PathBuf::from(&device.mount_path).join(&job.usb_subfolder);
         std::fs::create_dir_all(&usb_root).map_err(|e| e.to_string())?;
-        let local_state = scan_directory(&local_root)?;
-        let usb_state = scan_directory(&usb_root)?;
+        let local_state = scan_directory(&local_root, &ignores)?;
+        let usb_state = scan_directory(&usb_root, &ignores)?;
         let summary = if fresh {
             compare_states_fresh(&local_state, &usb_state)
         } else {
@@ -344,6 +345,10 @@ async fn start_sync(
     state: State<'_, AppState>,
 ) -> Result<SyncSummary, String> {
     let (local_root, usb_root) = resolve_job_roots(&job_id, &state)?;
+    let ignores = {
+        let config = state.config.lock().map_err(|e| e.to_string())?;
+        config.global_ignores.clone()
+    };
     let cancel = Arc::clone(&state.cancel_sync);
     cancel.store(false, Ordering::Relaxed);
     let idx_path = job_index_path(&job_id);
@@ -353,8 +358,8 @@ async fn start_sync(
     tauri::async_runtime::spawn_blocking(move || {
         std::fs::create_dir_all(&usb_root).map_err(|e| e.to_string())?;
 
-        let local_state = scan_directory(&local_root)?;
-        let usb_state = scan_directory(&usb_root)?;
+        let local_state = scan_directory(&local_root, &ignores)?;
+        let usb_state = scan_directory(&usb_root, &ignores)?;
         let mut index = load_index(&idx_path)?;
         let summary = if fresh {
             compare_states_fresh(&local_state, &usb_state)
