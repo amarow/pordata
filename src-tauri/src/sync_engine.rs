@@ -7,9 +7,10 @@
 
 use std::collections::{HashMap, HashSet};
 use std::fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use filetime::FileTime;
+use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
 use walkdir::WalkDir;
 
@@ -20,6 +21,13 @@ use walkdir::WalkDir;
 /// FAT32 timestamps have a 2-second granularity, so two mtimes that differ by
 /// at most this many seconds are considered equal.
 const FAT32_MTIME_TOLERANCE: u64 = 2;
+
+/// Upper bound on concurrent file operations issued against the USB device
+/// during [`execute_sync`]. A stick is a single physical channel, so this is
+/// deliberately much lower than the CPU count — it exists only to overlap
+/// per-file syscall latency (open/create-dir/close), not to parallelise
+/// throughput.
+const MAX_SYNC_CONCURRENCY: usize = 4;
 
 // ---------------------------------------------------------------------------
 // Data types
@@ -202,8 +210,11 @@ fn is_ignored(entry: &walkdir::DirEntry, patterns: &[String]) -> bool {
 /// Entries matching any pattern in `ignores` are pruned (entire subtrees for
 /// directories). Relative paths use forward-slash separators on all platforms.
 pub fn scan_directory(root: &Path, ignores: &[String]) -> Result<HashMap<String, FileState>, String> {
-    let mut files = HashMap::new();
-
+    // First pass: walk the tree and collect the paths of regular files that
+    // survive the ignore filter. This is mostly cheap readdir() calls, so it
+    // stays single-threaded (WalkDir doesn't support parallel directory
+    // traversal anyway).
+    let mut entries: Vec<(String, PathBuf)> = Vec::new();
     for entry in WalkDir::new(root).into_iter().filter_entry(|e| !is_ignored(e, ignores)) {
         let entry = entry.map_err(|e| format!("walkdir error: {e}"))?;
 
@@ -216,25 +227,31 @@ pub fn scan_directory(root: &Path, ignores: &[String]) -> Result<HashMap<String,
         let rel = abs
             .strip_prefix(root)
             .map_err(|e| format!("strip_prefix error: {e}"))?;
-        let rel_path = normalise_rel_path(rel);
-
-        let meta = fs::metadata(abs).map_err(|e| {
-            format!("Failed to read metadata of {}: {e}", abs.display())
-        })?;
-        let mtime = FileTime::from_last_modification_time(&meta).unix_seconds() as u64;
-        let size = meta.len();
-
-        files.insert(
-            rel_path.clone(),
-            FileState {
-                rel_path,
-                mtime,
-                size,
-            },
-        );
+        entries.push((normalise_rel_path(rel), abs.to_path_buf()));
     }
 
-    Ok(files)
+    // Second pass: fetch metadata concurrently. The per-file stat() syscall
+    // is what dominates scan time on removable media with tens of thousands
+    // of files — overlapping many of them hides that latency far better than
+    // issuing them one at a time.
+    entries
+        .into_par_iter()
+        .map(|(rel_path, abs)| {
+            let meta = fs::metadata(&abs).map_err(|e| {
+                format!("Failed to read metadata of {}: {e}", abs.display())
+            })?;
+            let mtime = FileTime::from_last_modification_time(&meta).unix_seconds() as u64;
+            let size = meta.len();
+            Ok((
+                rel_path.clone(),
+                FileState {
+                    rel_path,
+                    mtime,
+                    size,
+                },
+            ))
+        })
+        .collect()
 }
 
 /// Compare the current **local** and **USB** directory snapshots against the
@@ -424,11 +441,21 @@ pub fn save_index(index_path: &Path, index: &SyncIndex) -> Result<(), String> {
 ///
 /// After each successful operation the `index` is updated so that a
 /// subsequent crash leaves the index consistent with what has already been
-/// written to disk.
+/// written to disk. Index updates are only applied once the whole batch has
+/// finished without a fatal error or cancellation — mirroring the previous
+/// sequential behaviour where an aborted run never persisted a half-updated
+/// index (the caller re-derives the remaining work on the next scan).
 ///
 /// Copy errors (e.g. FAT32-illegal filenames) are non-fatal: the file is
 /// added to the returned `skipped` list and the sync continues.
 /// Delete errors and I/O errors that are not copy-related remain fatal.
+///
+/// Operations run concurrently (bounded by [`MAX_SYNC_CONCURRENCY`]) since
+/// with many small files the per-file syscall latency (open/create-dir/close),
+/// not raw transfer speed, is usually the bottleneck — overlapping several of
+/// them hides that latency. As a result the `file` name passed to `progress`
+/// reflects whichever operation finished last, not necessarily the traversal
+/// order of `operations`.
 ///
 /// Returns `(executed_count, skipped_paths)`.
 pub fn execute_sync<F>(
@@ -437,111 +464,179 @@ pub fn execute_sync<F>(
     operations: &[SyncOperation],
     index: &mut SyncIndex,
     cancel: &std::sync::atomic::AtomicBool,
-    mut progress: F,
+    progress: F,
 ) -> Result<(usize, Vec<String>), String>
 where
-    F: FnMut(usize, usize, &str, bool),
+    F: FnMut(usize, usize, &str, bool) + Send,
 {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::Mutex;
+
+    enum IndexUpdate {
+        Insert(FileState),
+        Remove,
+    }
+
+    enum Outcome {
+        Applied(String, IndexUpdate, bool),
+        Skipped,
+        HardError(String),
+        Noop,
+    }
+
     let total = operations
         .iter()
         .filter(|op| !matches!(op, SyncOperation::UpToDate { .. } | SyncOperation::Conflict { .. }))
         .count();
-    let mut executed: usize = 0;
-    let mut skipped: Vec<String> = Vec::new();
 
-    for op in operations {
-        if cancel.load(std::sync::atomic::Ordering::Relaxed) {
-            return Err("Sync abgebrochen".to_string());
-        }
-        match op {
-            SyncOperation::CopyToUsb { rel_path } => {
-                let src = local_root.join(rel_path);
-                let dst = usb_root.join(rel_path);
-                match copy_preserving_mtime(&src, &dst) {
-                    Err(e) => {
-                        skipped.push(format!("{rel_path}: {e}"));
+    let executed = AtomicUsize::new(0);
+    let skipped: Mutex<Vec<String>> = Mutex::new(Vec::new());
+    let updates: Mutex<Vec<(String, IndexUpdate)>> = Mutex::new(Vec::new());
+    let hard_error: Mutex<Option<String>> = Mutex::new(None);
+    let progress = Mutex::new(progress);
+
+    let pool = rayon::ThreadPoolBuilder::new()
+        .num_threads(MAX_SYNC_CONCURRENCY)
+        .build()
+        .map_err(|e| e.to_string())?;
+
+    pool.install(|| {
+        operations.par_iter().for_each(|op| {
+            if cancel.load(Ordering::Relaxed) || hard_error.lock().unwrap().is_some() {
+                return;
+            }
+
+            let outcome = match op {
+                SyncOperation::CopyToUsb { rel_path } => {
+                    let src = local_root.join(rel_path);
+                    let dst = usb_root.join(rel_path);
+                    match copy_preserving_mtime(&src, &dst) {
                         // Do not update the index — the file will be retried
                         // next sync, giving the user a chance to rename it.
+                        Err(e) => {
+                            skipped.lock().unwrap().push(format!("{rel_path}: {e}"));
+                            Outcome::Skipped
+                        }
+                        Ok(()) => match fs::metadata(&src) {
+                            Ok(meta) => {
+                                let mtime = FileTime::from_last_modification_time(&meta)
+                                    .unix_seconds() as u64;
+                                let size = meta.len();
+                                Outcome::Applied(
+                                    rel_path.clone(),
+                                    IndexUpdate::Insert(FileState {
+                                        rel_path: rel_path.clone(),
+                                        mtime,
+                                        size,
+                                    }),
+                                    true,
+                                )
+                            }
+                            Err(e) => Outcome::HardError(format!("metadata after copy: {e}")),
+                        },
                     }
-                    Ok(()) => {
-                        let meta = fs::metadata(&src).map_err(|e| {
-                            format!("metadata after copy: {e}")
-                        })?;
-                        let mtime =
-                            FileTime::from_last_modification_time(&meta).unix_seconds() as u64;
-                        let size = meta.len();
-                        index.files.insert(
-                            rel_path.clone(),
-                            FileState {
-                                rel_path: rel_path.clone(),
-                                mtime,
-                                size,
-                            },
-                        );
-                        executed += 1;
-                        progress(executed, total, rel_path, true);
+                }
+
+                SyncOperation::CopyToLocal { rel_path } => {
+                    let src = usb_root.join(rel_path);
+                    let dst = local_root.join(rel_path);
+                    match copy_preserving_mtime(&src, &dst) {
+                        Err(e) => {
+                            skipped.lock().unwrap().push(format!("{rel_path}: {e}"));
+                            Outcome::Skipped
+                        }
+                        Ok(()) => match fs::metadata(&src) {
+                            Ok(meta) => {
+                                let mtime = FileTime::from_last_modification_time(&meta)
+                                    .unix_seconds() as u64;
+                                let size = meta.len();
+                                Outcome::Applied(
+                                    rel_path.clone(),
+                                    IndexUpdate::Insert(FileState {
+                                        rel_path: rel_path.clone(),
+                                        mtime,
+                                        size,
+                                    }),
+                                    true,
+                                )
+                            }
+                            Err(e) => Outcome::HardError(format!("metadata after copy: {e}")),
+                        },
+                    }
+                }
+
+                SyncOperation::DeleteOnUsb { rel_path } => {
+                    let target = usb_root.join(rel_path);
+                    if target.exists() {
+                        if let Err(e) = fs::remove_file(&target) {
+                            Outcome::HardError(format!(
+                                "Failed to delete {}: {e}",
+                                target.display()
+                            ))
+                        } else {
+                            Outcome::Applied(rel_path.clone(), IndexUpdate::Remove, false)
+                        }
+                    } else {
+                        Outcome::Applied(rel_path.clone(), IndexUpdate::Remove, false)
+                    }
+                }
+
+                SyncOperation::DeleteOnLocal { rel_path } => {
+                    let target = local_root.join(rel_path);
+                    if target.exists() {
+                        if let Err(e) = fs::remove_file(&target) {
+                            Outcome::HardError(format!(
+                                "Failed to delete {}: {e}",
+                                target.display()
+                            ))
+                        } else {
+                            Outcome::Applied(rel_path.clone(), IndexUpdate::Remove, false)
+                        }
+                    } else {
+                        Outcome::Applied(rel_path.clone(), IndexUpdate::Remove, false)
+                    }
+                }
+
+                // Conflicts and up-to-date files are intentionally skipped.
+                SyncOperation::Conflict { .. } | SyncOperation::UpToDate { .. } => Outcome::Noop,
+            };
+
+            match outcome {
+                Outcome::Applied(rel_path, update, is_copy) => {
+                    updates.lock().unwrap().push((rel_path.clone(), update));
+                    let done = executed.fetch_add(1, Ordering::Relaxed) + 1;
+                    (progress.lock().unwrap())(done, total, &rel_path, is_copy);
+                }
+                Outcome::Skipped | Outcome::Noop => {}
+                Outcome::HardError(e) => {
+                    let mut he = hard_error.lock().unwrap();
+                    if he.is_none() {
+                        *he = Some(e);
                     }
                 }
             }
+        });
+    });
 
-            SyncOperation::CopyToLocal { rel_path } => {
-                let src = usb_root.join(rel_path);
-                let dst = local_root.join(rel_path);
-                match copy_preserving_mtime(&src, &dst) {
-                    Err(e) => {
-                        skipped.push(format!("{rel_path}: {e}"));
-                    }
-                    Ok(()) => {
-                        let meta = fs::metadata(&src).map_err(|e| {
-                            format!("metadata after copy: {e}")
-                        })?;
-                        let mtime =
-                            FileTime::from_last_modification_time(&meta).unix_seconds() as u64;
-                        let size = meta.len();
-                        index.files.insert(
-                            rel_path.clone(),
-                            FileState {
-                                rel_path: rel_path.clone(),
-                                mtime,
-                                size,
-                            },
-                        );
-                        executed += 1;
-                        progress(executed, total, rel_path, true);
-                    }
-                }
+    if cancel.load(Ordering::Relaxed) {
+        return Err("Sync abgebrochen".to_string());
+    }
+    if let Some(e) = hard_error.into_inner().unwrap() {
+        return Err(e);
+    }
+
+    for (rel_path, update) in updates.into_inner().unwrap() {
+        match update {
+            IndexUpdate::Insert(state) => {
+                index.files.insert(rel_path, state);
             }
-
-            SyncOperation::DeleteOnUsb { rel_path } => {
-                let target = usb_root.join(rel_path);
-                if target.exists() {
-                    fs::remove_file(&target).map_err(|e| {
-                        format!("Failed to delete {}: {e}", target.display())
-                    })?;
-                }
-                index.files.remove(rel_path);
-                executed += 1;
-                progress(executed, total, rel_path, false);
+            IndexUpdate::Remove => {
+                index.files.remove(&rel_path);
             }
-
-            SyncOperation::DeleteOnLocal { rel_path } => {
-                let target = local_root.join(rel_path);
-                if target.exists() {
-                    fs::remove_file(&target).map_err(|e| {
-                        format!("Failed to delete {}: {e}", target.display())
-                    })?;
-                }
-                index.files.remove(rel_path);
-                executed += 1;
-                progress(executed, total, rel_path, false);
-            }
-
-            // Conflicts and up-to-date files are intentionally skipped.
-            SyncOperation::Conflict { .. } | SyncOperation::UpToDate { .. } => {}
         }
     }
 
-    Ok((executed, skipped))
+    Ok((executed.into_inner(), skipped.into_inner().unwrap()))
 }
 
 /// Resolve a single conflict for the file at `rel_path`.

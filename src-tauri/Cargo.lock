@@ -3669,6 +3669,7 @@ name = "tauri-app"
 version = "0.1.0"
 dependencies = [
  "filetime",
+ "rayon",
  "rfd",
  "serde",
  "serde_json",
