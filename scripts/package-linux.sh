@@ -1,17 +1,16 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-VERSION=$(node -p "require('./package.json').version")
-SRC="src-tauri/target/release/bundle/appimage/tauri-app_${VERSION}_amd64.AppImage"
+SRC=$(ls src-tauri/target/release/bundle/appimage/*.AppImage 2>/dev/null | head -n1)
 
-if [ ! -f "$SRC" ]; then
-  echo "Fehler: AppImage nicht gefunden: $SRC" >&2
+if [ -z "$SRC" ]; then
+  echo "Fehler: kein AppImage in src-tauri/target/release/bundle/appimage/ gefunden" >&2
   exit 1
 fi
 
 mkdir -p deploy
-cp "$SRC" "deploy/pordata_${VERSION}.AppImage"
+cp "$SRC" "deploy/pordata.AppImage"
 cp BEDIENUNGSANLEITUNG.txt deploy/
 
-echo "→ deploy/pordata_${VERSION}.AppImage"
+echo "→ deploy/pordata.AppImage"
 echo "→ deploy/BEDIENUNGSANLEITUNG.txt"

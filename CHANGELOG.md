@@ -2,6 +2,11 @@
 
 ## [Unreleased]
 
+## [0.1.4] - 2026-07-02
+### Fixed
+- App-Name in Taskleiste/Fenster-Tooltip zeigt jetzt „Pordata Sync" statt des Platzhalters „Tauri App"
+- Ausgeliefertes AppImage heißt fest `pordata.AppImage` (keine Versionsnummer mehr im Dateinamen)
+
 ## [0.1.3] - 2026-07-02
 ### Fixed
 - Scrollbar in der Liste der globalen Ignore-Muster überlappt nicht mehr die Einträge

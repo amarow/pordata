@@ -27,9 +27,12 @@ npm run tauri build
 Das erzeugt ein installierbares Paket unter:
 ```
 src-tauri/target/release/bundle/
-  appimage/   → pordata-sync_0.1.0_amd64.AppImage   (direkt ausführbar)
-  deb/        → pordata-sync_0.1.0_amd64.deb         (installierbar)
+  appimage/   → Pordata Sync_<version>_amd64.AppImage   (direkt ausführbar)
+  deb/        → Pordata Sync_<version>_amd64.deb         (installierbar)
 ```
+
+`npm run deploy` kopiert das AppImage zusätzlich ohne Versionsnummer nach
+`deploy/pordata.AppImage`.
 
 ---
 
