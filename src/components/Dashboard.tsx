@@ -83,7 +83,10 @@ export default function Dashboard({
             title={theme === "dark" ? "Helles Design" : "Dunkles Design"}
             onClick={onToggleTheme}
           >
-            {theme === "dark" ? "☀" : "☾"}
+            <svg width="18" height="18" viewBox="0 0 18 18" fill="none" stroke="currentColor" strokeWidth="1.4" aria-hidden>
+              <circle cx="9" cy="9" r="7" />
+              <path d="M9 2a7 7 0 0 0 0 14z" fill="currentColor" stroke="none" />
+            </svg>
           </button>
         </div>
       </header>
