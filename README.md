@@ -19,6 +19,7 @@ Eine intuitive, plattformübergreifende Desktop-App zur **bidirektionalen USB-Sy
 - **FAT32/exFAT-kompatibel** (2-Sekunden-Toleranz bei mtimes)
 - **Dark / Light Mode** mit automatischer Systemerkennung
 - **Pfad-Überwachung** — ausgegrauter Pfad wenn Ordner nicht mehr erreichbar ist
+- **Globale Ignore-Muster** — Dateien/Verzeichnisse (z. B. `*.tmp`, `node_modules`) über die Einstellungen dauerhaft vom Sync ausschließen
 
 ## Tech Stack
 
@@ -49,6 +50,8 @@ pordata/
 │   │   └── device_monitor.rs # USB-Erkennung
 │   └── Cargo.toml
 ├── scripts/
+│   ├── deploy.sh         # Version abfragen/setzen + Build + Paketierung
+│   ├── set-version.sh    # Version in package.json/tauri.conf.json/Cargo.toml syncen
 │   └── package-linux.sh  # AppImage + Anleitung → deploy/
 └── deploy/               # (gitignore) Release-Artefakte
 ```
@@ -67,7 +70,8 @@ Für End-to-End-Tests und USB-Stick-Einrichtung → [TESTING.md](./TESTING.md)
 
 ```bash
 npm run tauri build       # Produktions-Build (AppImage / .deb)
-npm run deploy            # Build + AppImage & Bedienungsanleitung → deploy/
+npm run deploy            # Version abfragen, Build + AppImage & Bedienungsanleitung → deploy/
+npm run deploy -- 0.2.0   # Version nicht-interaktiv setzen
 cd src-tauri && cargo test # Rust-Unit-Tests (31/31)
 ```
 

@@ -3,6 +3,7 @@ import Dashboard from "./components/Dashboard";
 import NewJobDialog from "./components/NewJobDialog";
 import SyncPreview from "./components/SyncPreview";
 import ConflictDialog from "./components/ConflictDialog";
+import SettingsDialog from "./components/SettingsDialog";
 import "./App.css";
 
 export default function App() {
@@ -28,6 +29,10 @@ export default function App() {
     handleOpenManual,
     handleSetupSticks,
     stickSetupResults, setStickSetupResults,
+    appVersion,
+    globalIgnores,
+    settingsOpen, setSettingsOpen,
+    handleSaveGlobalIgnores,
     handleSync,
     handleCancelSync,
     handleResolveConflicts,
@@ -125,9 +130,19 @@ export default function App() {
           onStartSync={handleStartPreScan}
           onDeleteJob={handleDeleteJob}
           onSetupSticks={handleSetupSticks}
+          onOpenSettings={() => setSettingsOpen(true)}
+          appVersion={appVersion}
           theme={theme}
           onToggleTheme={toggleTheme}
           validLocalPaths={validLocalPaths}
+        />
+      )}
+
+      {settingsOpen && (
+        <SettingsDialog
+          ignores={globalIgnores}
+          onSave={handleSaveGlobalIgnores}
+          onCancel={() => setSettingsOpen(false)}
         />
       )}
 

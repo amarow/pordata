@@ -10,6 +10,8 @@ interface Props {
   onStartSync: (jobId?: string) => void;
   onDeleteJob: (jobId: string) => void;
   onSetupSticks: () => void;
+  onOpenSettings: () => void;
+  appVersion: string;
   theme: "dark" | "light";
   onToggleTheme: () => void;
   validLocalPaths: Set<string>;
@@ -22,6 +24,8 @@ export default function Dashboard({
   onStartSync,
   onDeleteJob,
   onSetupSticks,
+  onOpenSettings,
+  appVersion,
   theme,
   onToggleTheme,
   validLocalPaths,
@@ -45,6 +49,7 @@ export default function Dashboard({
         <div className="app-title">
           <img src={appIcon} alt="" className="app-icon" />
           <h1>Pordata Sync</h1>
+          {appVersion && <span className="app-version">v{appVersion}</span>}
         </div>
         <div className="header-actions">
           <button
@@ -61,6 +66,16 @@ export default function Dashboard({
               <circle cx="4" cy="3" r="1.5"/>
               <line x1="14" y1="7" x2="14" y2="4" stroke="currentColor" strokeWidth="1.5"/>
               <rect x="12.5" y="2" width="3" height="3" rx="0.3"/>
+            </svg>
+          </button>
+          <button
+            className="btn-theme-toggle"
+            title="Einstellungen"
+            onClick={onOpenSettings}
+          >
+            <svg width="18" height="18" viewBox="0 0 18 18" fill="none" stroke="currentColor" strokeWidth="1.4" aria-hidden>
+              <circle cx="9" cy="9" r="2.4" />
+              <path d="M9 1.8v1.6M9 14.6v1.6M16.2 9h-1.6M3.4 9H1.8M14.02 3.98l-1.13 1.13M5.11 12.9l-1.13 1.13M14.02 14.02l-1.13-1.13M5.11 5.11L3.98 3.98" />
             </svg>
           </button>
           <button

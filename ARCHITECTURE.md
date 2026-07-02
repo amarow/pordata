@@ -53,6 +53,7 @@ WebView, die gesamte Sync-Logik steckt im Rust-Backend.
 │  │  init_usb_device ───────► sysinfo                  │  │
 │  │  setup_usb_stick ───────► Dateisystem              │  │
 │  │  suggest_usb_subfolder ─► (pure fn)                │  │
+│  │  get/set_global_ignores ► config                   │  │
 │  │                                                    │  │
 │  │  AppState { config, active_devices, cancel_sync }  │  │
 │  └────────────────────────────────────────────────────┘  │
@@ -166,6 +167,20 @@ und rein nach Zeitstempeln entscheiden lassen möchte.
 Index nicht, wird angenommen, dass der Nutzer einen frisch angelegten lokalen
 Ordner verwendet — es wird `CopyToLocal` statt `DeleteOnUsb` erzeugt.
 
+**Globale Ignore-Muster:** `scan_directory(root, ignores)` filtert Einträge
+über `is_ignored` — Muster werden nur gegen den Dateinamen geprüft:
+exakter Name (`"node_modules"`), Suffix (`"*.log"`) oder Präfix (`"tmp*"`).
+Treffer werden per `WalkDir::filter_entry` bereits als ganze Teilbäume
+übersprungen, statt sie einzeln herauszufiltern. Die Muster kommen aus
+`Config.global_ignores` und gelten für alle Jobs gleichermaßen.
+
+**Parallelisierung (`rayon`):** `scan_directory` liest Verzeichnisse
+einzelschrittig (WalkDir erlaubt keine parallele Traversierung), holt die
+`stat()`-Metadaten pro Datei aber über `into_par_iter()` parallel ein — das
+dominiert die Scanzeit auf Wechseldatenträgern mit vielen tausend Dateien.
+`execute_sync` kopiert/löscht Operationen ebenfalls parallel über einen
+dedizierten `rayon::ThreadPool` mit `MAX_SYNC_CONCURRENCY` Threads.
+
 ### `lib.rs` — Tauri-Commands und AppState
 
 **AppState:**
@@ -228,11 +243,14 @@ useAppState.ts          ← gesamter App-State + alle Handler + invoke()-Aufrufe
         ├─► Dashboard       (Jobs, USB-Einrichten-Button)
         ├─► NewJobDialog    (lokaler + USB-Pfad, Vorschlag-Button)
         ├─► SyncPreview     (Richtungs-Buttons, Aktualisieren, Manuell)
-        └─► ConflictDialog  (Manuelle Synchronisation)
+        ├─► ConflictDialog  (Manuelle Synchronisation)
+        └─► SettingsDialog  (globale Ignore-Muster verwalten)
 ```
 
 Kein Router, keine State-Library. Navigation über `useState<View>` mit dem
 Discriminated-Union-Typ `'dashboard' | 'new-job' | 'sync-preview' | 'conflict'`.
+`SettingsDialog` ist kein eigener `View`-Wert, sondern ein unabhängiges
+`settingsOpen`-Boolean, das über `App.tsx` overlay-artig eingeblendet wird.
 
 Alle `invoke()`-Aufrufe leben in `useAppState.ts`; Komponenten erhalten nur
 Callbacks. `src/types.ts` spiegelt jeden Rust-Typ, der die IPC-Grenze passiert.

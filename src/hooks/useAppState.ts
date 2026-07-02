@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
+import { getVersion } from "@tauri-apps/api/app";
 import type {
   SyncJob,
   DeviceInfo,
@@ -30,6 +31,9 @@ export function useAppState() {
 
   const [freshScanJobIds, setFreshScanJobIds] = useState<Set<string>>(new Set());
   const [stickSetupResults, setStickSetupResults] = useState<SetupStickResult[] | null>(null);
+  const [globalIgnores, setGlobalIgnores] = useState<string[]>([]);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [appVersion, setAppVersion] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [skippedFiles, setSkippedFiles] = useState<string[]>([]);
   const [validLocalPaths, setValidLocalPaths] = useState<Set<string>>(new Set());
@@ -51,6 +55,8 @@ export function useAppState() {
   useEffect(() => {
     loadJobs();
     loadActiveDevices();
+    loadGlobalIgnores();
+    getVersion().then(setAppVersion).catch(() => {});
   }, []);
 
   useEffect(() => {
@@ -62,13 +68,14 @@ export function useAppState() {
   useEffect(() => {
     function onKeyDown(e: KeyboardEvent) {
       if (e.key !== "Escape") return;
+      if (settingsOpen) { setSettingsOpen(false); return; }
       if (view === "new-job") setView("dashboard");
       if (view === "sync-preview") setView("dashboard");
       if (view === "conflict") setView("dashboard");
     }
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [view]);
+  }, [view, settingsOpen]);
 
 
   useEffect(() => {
@@ -126,6 +133,24 @@ export function useAppState() {
   async function loadActiveDevices() {
     try {
       setActiveDevices(await invoke<DeviceInfo[]>("get_active_devices"));
+    } catch (e) {
+      setError(String(e));
+    }
+  }
+
+  async function loadGlobalIgnores() {
+    try {
+      setGlobalIgnores(await invoke<string[]>("get_global_ignores"));
+    } catch (e) {
+      setError(String(e));
+    }
+  }
+
+  async function handleSaveGlobalIgnores(ignores: string[]) {
+    try {
+      await invoke("set_global_ignores", { ignores });
+      setGlobalIgnores(ignores);
+      setSettingsOpen(false);
     } catch (e) {
       setError(String(e));
     }
@@ -335,6 +360,10 @@ export function useAppState() {
     handleOpenManual,
     handleSetupSticks,
     stickSetupResults, setStickSetupResults,
+    appVersion,
+    globalIgnores,
+    settingsOpen, setSettingsOpen,
+    handleSaveGlobalIgnores,
     handleSync,
     handleCancelSync,
     handleResolveConflicts,

@@ -12,7 +12,8 @@ Pordata Sync is a Tauri 2 desktop app for bidirectional USB folder synchronisati
 npm install              # first-time setup
 npm run tauri dev        # dev mode (starts Vite + compiles Rust; first build ~1-2 min)
 npm run tauri build      # production AppImage / .deb → src-tauri/target/release/bundle/
-npm run deploy           # build + copy AppImage & BEDIENUNGSANLEITUNG.txt → deploy/
+npm run deploy           # prompts for version, syncs it project-wide, builds, copies AppImage & BEDIENUNGSANLEITUNG.txt → deploy/
+npm run deploy -- 0.2.0  # same, but sets the version non-interactively
 
 cd src-tauri && cargo test   # Rust unit tests (all in sync_engine.rs and config.rs)
 ```
@@ -22,6 +23,10 @@ Reset app state if something breaks:
 rm ~/.config/pordata/config.json          # clears all jobs
 rm ~/.config/pordata/index_<JOB-ID>.json  # clears sync index for one job
 ```
+
+### Versioning
+
+The version number lives in three files that must stay in sync: `package.json`, `src-tauri/tauri.conf.json`, `src-tauri/Cargo.toml` (`Cargo.lock` follows automatically via `cargo check`). `scripts/set-version.sh <x.y.z>` writes all three; `npm run deploy` calls it (prompting for a version, defaulting to the current one, if none is given as an argument) before building. The frontend reads the version at runtime via `getVersion()` from `@tauri-apps/api/app`, shown next to the title on the dashboard — never hardcode it in TSX.
 
 ## Architecture
 
@@ -84,6 +89,7 @@ User clicks a direction button ("Lokal → USB" or "Lokal ← USB")
 - `suggest_usb_subfolder(local_path) -> String` — derives USB subfolder from local path (e.g. `/home/ama/Docs` → `pordata/home/ama/Docs`)
 - `run_pre_scan_fresh(job_id) -> PreScanResult` — timestamp-only scan ignoring the index; triggered by "Aktualisieren"
 - `cancel_sync()` — sets `AppState.cancel_sync` flag to abort a running sync
+- `get_global_ignores() -> Vec<String>` / `set_global_ignores(ignores)` — read/write `Config.global_ignores`, the file/directory name patterns excluded from every scan (exact match, or `*` prefix/suffix wildcard)
 
 ### React frontend (`src/`)
 
@@ -100,6 +106,8 @@ All state and `invoke()` calls live in `src/hooks/useAppState.ts`. `App.tsx` is 
 **ConflictDialog**: pre-selects the newest file (local vs USB mtime), bulk action "Alle: Neueste", submit button labelled "Synchronisieren". Local = blue, USB = green resolution buttons.
 
 **NewJobDialog**: full-page view (not an overlay). Uses `init_usb_device` to auto-create `.pordata-uuid` if the stick doesn't have one yet.
+
+**SettingsDialog**: overlay opened from the gear icon in the dashboard header, independent of `View` (`settingsOpen` boolean, not a routed view). Lets the user add/remove `global_ignores` patterns; saves via `set_global_ignores`.
 
 ### USB stick identity
 

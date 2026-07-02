@@ -441,6 +441,19 @@ fn get_active_devices(state: State<AppState>) -> Result<Vec<DeviceInfo>, String>
     Ok(active.values().cloned().collect())
 }
 
+#[tauri::command]
+fn get_global_ignores(state: State<AppState>) -> Result<Vec<String>, String> {
+    let config = state.config.lock().map_err(|e| e.to_string())?;
+    Ok(config.global_ignores.clone())
+}
+
+#[tauri::command]
+fn set_global_ignores(ignores: Vec<String>, state: State<AppState>) -> Result<(), String> {
+    let mut config = state.config.lock().map_err(|e| e.to_string())?;
+    config.global_ignores = ignores;
+    save_config(&config)
+}
+
 // ---------------------------------------------------------------------------
 // Entry point
 // ---------------------------------------------------------------------------
@@ -487,6 +500,8 @@ pub fn run() {
             cancel_sync,
             resolve_conflicts,
             get_active_devices,
+            get_global_ignores,
+            set_global_ignores,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

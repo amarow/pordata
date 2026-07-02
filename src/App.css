@@ -187,6 +187,35 @@ body, #root { height: 100vh; overflow: hidden; }
   margin-bottom: 0;
 }
 
+.settings-dialog .missing-path-intro {
+  margin-top: -2px;
+}
+.ignore-pattern-list {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 12px 0 0;
+  max-height: 260px;
+  overflow-y: auto;
+}
+.ignore-pattern-list li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 6px 8px 6px 12px;
+}
+.ignore-pattern-value {
+  font-family: monospace;
+  font-size: 0.82rem;
+  color: var(--text);
+  word-break: break-all;
+}
+
 /* ---------- Inline sync progress (inside SyncPreview) ---------- */
 .sync-running {
   display: flex;
@@ -321,6 +350,14 @@ select option { background: var(--bg); color: var(--text); }
   font-weight: 700;
   color: var(--text-strong);
   letter-spacing: -0.02em;
+}
+.app-version {
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+  align-self: flex-end;
+  margin-bottom: 2px;
 }
 .header-actions { display: flex; gap: 8px; align-items: center; }
 .header-devices { display: flex; gap: 8px; flex-wrap: wrap; }
